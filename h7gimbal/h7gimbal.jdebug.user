@@ -1,0 +1,26 @@
+
+
+GraphedExpression="(((gimbal).yaw_motor_fdb).Data).Velocity", Color=#e56a6f
+GraphedExpression="angletest", Color=#35792b
+GraphedExpression="test", Color=#769dda
+OpenDocument="Shoot_Task.c", FilePath="D:/VGD/HERO/hero26/h7gimbal/Application/Task/Src/Shoot_Task.c", Line=0
+OpenDocument="stm32h7xx_it.c", FilePath="D:/VGD/HERO/hero26/h7gimbal/Core/Src/stm32h7xx_it.c", Line=110
+OpenDocument="main.c", FilePath="D:/VGD/HERO/hero26/h7gimbal/Core/Src/main.c", Line=64
+OpenToolbar="File", Floating=0, x=1, y=0
+OpenToolbar="Debug", Floating=0, x=0, y=0
+OpenWindow="Source Files", DockArea=LEFT, x=0, y=0, w=661, h=1018, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Watched Data 1", DockArea=RIGHT, x=0, y=0, w=787, h=1018, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Data Sampling", DockArea=BOTTOM, x=1, y=0, w=1248, h=758, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
+OpenWindow="Timeline", DockArea=BOTTOM, x=2, y=0, w=1377, h=758, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="500 ms / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="754;0", DataGraphShowNamesAtCursor=0, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="1085;-91", CodeGraphLegendShown=0, CodeGraphLegendPosition="1108;0"
+OpenWindow="Console", DockArea=BOTTOM, x=0, y=0, w=573, h=758, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+SmartViewPlugin="", Page="", Toolbar="Hidden", Window="SmartView 1"
+TableHeader="Source Files", SortCol="File", SortOrder="DESCENDING", VisibleCols=["File";"Status";"Size";"#Insts";"Path"], ColWidths=[306;116;100;116;1180]
+TableHeader="Data Sampling Table", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";" (((gimbal).yaw_motor_fdb).Data).Velocity";" angletest";" test"], ColWidths=[100;100;100;100;848]
+TableHeader="Data Sampling Setup", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Type";"Value";"Min";"Max";"Average";"# Changes";"Min. Change";"Max. Change"], ColWidths=[476;100;157;183;144;183;149;171;171]
+TableHeader="Power Sampling", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";"Ch 0"], ColWidths=[100;100;100]
+TableHeader="Watched Data 1", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Value";"Location";"Refresh"], ColWidths=[214;128;100;311]
+TableHeader="RegisterSelectionDialog", SortCol="None", SortOrder="ASCENDING", VisibleCols=[], ColWidths=[]
+TableHeader="TargetExceptionDialog", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Address";"Description"], ColWidths=[200;100;100;320]
+WatchedExpression="shoot", Window=Watched Data 1
+WatchedExpression="test", Window=Watched Data 1
+WatchedExpression="gimbal", Window=Watched Data 1

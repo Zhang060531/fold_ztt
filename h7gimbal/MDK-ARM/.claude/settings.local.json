@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"d:\\\\ap\\\\Gitee\\\\RoboMaster\\\\guodong_7_20_NEW\\\\h7gimbal\" -type f \\\\\\( -name \"*.c\" -o -name \"*.h\" -o -name \"*.s\" -o -name \"*.md\" -o -name \"*.txt\" -o -name \"*.uvprojx\" -o -name \"*.uvoptx\" \\\\\\) | sort)",
+      "Read(//d/ap/Gitee/RoboMaster/guodong_7_20_NEW/h7gimbal/**)",
+      "Bash(find \"d:\\\\ap\\\\Gitee\\\\RoboMaster\\\\guodong_7_20_NEW\\\\h7gimbal\" -type d | sort)",
+      "Bash(find \"D:\\\\ap\\\\Gitee\\\\RoboMaster\\\\guodong_7_20_NEW\\\\h7chassis\" -type f \\\\\\( -name \"*.c\" -o -name \"*.h\" -o -name \"*.s\" \\\\\\) | sort)",
+      "Read(//d/ap/Gitee/RoboMaster/guodong_7_20_NEW/h7chassis/**)",
+      "Bash(find \"D:\\\\ap\\\\Gitee\\\\RoboMaster\\\\guodong_7_20_NEW\\\\h7chassis\" -type d | sort)",
+      "Bash(ls -la \"d:/ap/Gitee/RoboMaster/guodong_8_1_NEW/h7gimbal/\")",
+      "Read(//d/ap/Gitee/RoboMaster/guodong_8_1_NEW/h7gimbal/**)"
+    ]
+  }
+}

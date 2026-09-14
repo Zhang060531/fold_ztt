@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"d:\\\\ap\\\\Gitee\\\\RoboMaster\\\\guodong_7_15_NEW\\\\h7chassis\" -type f -name \"*.c\" -o -name \"*.h\" | head -100)",
+      "Read(//d/ap/Gitee/RoboMaster/guodong_7_15_NEW/h7chassis/**)",
+      "Bash(ls -la \"d:\\\\ap\\\\Gitee\\\\RoboMaster\\\\guodong_7_15_NEW\\\\h7chassis\\\\MDK-ARM\\\\\")"
+    ]
+  }
+}
