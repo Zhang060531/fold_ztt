@@ -185,7 +185,7 @@ void BSP_FDCAN_Init(void)
     /* 配置全局过滤器：拒绝「不匹配任何过滤器的帧」，即只有通过上面过滤器的帧才收 */
     HAL_FDCAN_ConfigGlobalFilter(&hfdcan1, FDCAN_REJECT, FDCAN_REJECT, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE);
 
-    HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0); /* 使能 FIFO0 新消息中断 */
+    HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE,0); /* 使能 FIFO0 新消息中断 */
 
     HAL_FDCAN_Start(&hfdcan1);                                  /* FDCAN1 开始工作 */
 
@@ -231,6 +231,23 @@ void BSP_FDCAN_Init(void)
 
     HAL_FDCAN_Start(&hfdcan3);
 }
+
+/**
+ * @brief HAL库CAN错误中断
+ *
+ * @param hfdcan CAN编号
+ * @param ErrorStatusITs 错误状态
+ */
+void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t ErrorStatusITs)
+{
+    if ((ErrorStatusITs & FDCAN_IT_BUS_OFF) != RESET)
+    {
+        // CAN总线离线, 重新启动CAN
+        HAL_FDCAN_Stop(hfdcan);
+        HAL_FDCAN_Start(hfdcan);
+    }
+}
+
 
 /**
   * @brief  把一帧 CAN 数据塞进发送 FIFO 队列(非阻塞)
@@ -353,7 +370,6 @@ void Chassis_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, Chassis_Info_Typ
 }
 
 
-
 /**
   * @brief  FDCAN1 收到帧(FIFO0)后的解析分发函数
   * @param  Identifier 指向接收帧 ID
@@ -371,7 +387,6 @@ static void FDCAN1_RxFifo0RxHandler(uint32_t *Identifier, uint8_t Data[8])
     DJI_Motor_Info_Update(Identifier, Data, &Chassis_Motor[3]);   /* 底盘 4 号轮电机(收 0x204) */
     DJI_Motor_Info_Update(Identifier, Data, &Shoot_Motor);        /* 拨弹电机(收 0x205) */
     SuperPower_Info_Update(Identifier, Data, &PowerData);         /* 电管功率(收 0x211) */
-
 
 }
 
@@ -411,16 +426,18 @@ static void FDCAN2_RxFifo1RxHandler(uint32_t *Identifier, uint8_t Data[8])
  * @param hfdcan CAN编号
  * @param ErrorStatusITs 错误状态
  * @note  当 CAN 总线进入 BUS_OFF(总线离线)状态时，停止再重新启动该路 CAN 尝试恢复。
+ *        并按是哪一路 CAN 分别计数，方便定位是哪一路总线在反复掉线。
  */
-void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t ErrorStatusITs)
-{
-    if ((ErrorStatusITs & FDCAN_IT_BUS_OFF) != RESET)
-    {
-        // CAN总线离线, 重新启动CAN
-        HAL_FDCAN_Stop(hfdcan);
-        HAL_FDCAN_Start(hfdcan);
-    }
-}
+//void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t ErrorStatusITs)
+//{
+//    if ((ErrorStatusITs & FDCAN_IT_BUS_OFF) != RESET)
+//    {
+//        // CAN总线离线, 重新启动CAN
+//        HAL_FDCAN_Stop(hfdcan);
+//        HAL_FDCAN_Start(hfdcan);
+
+//    }
+//}
 
 /* ===== 电机反馈读取接口 =====
  * 这些函数把某个电机实例的数据整体拷出(*motor = xxx)，并返回该电机最后一次

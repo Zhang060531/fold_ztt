@@ -104,8 +104,9 @@ void Control_Task(void const * argument)
 //        chassis.chassis_xyz_set[CHASSIS_X] = remote_ctrl.rc.ch[2] * 0.014;
 //        chassis.chassis_xyz_set[CHASSIS_Y] = remote_ctrl.rc.ch[3] * 0.014;
 //        chassis.chassis_xyz_set[CHASSIS_Z] = -remote_ctrl.rc.ch[0] * 0.01;
-			//if (remote_ctrl.rc.s[1]==1)
-			//	chassis.chassis_xyz_set[CHASSIS_Z] = 10;
+//			if (remote_ctrl.rc.s[1]==1)
+//				chassis.chassis_xyz_set[CHASSIS_Z] = 10;
+			
         Slope_Compensation_Update(&chassis);   /* 第3步：坡度补偿系数更新 */
 
         CHASSIS_Single_Loop_Out();             /* 第4步：麦轮解算 + 速度环 PID，得到电流指令 */
@@ -533,7 +534,15 @@ float Power_KP = 1.6F;
 float Power_Boost = 0;
 /**
  * @brief 核心功率限幅算法（每 1ms 调用一次）
- * @note  整体分 5 步（见函数内 // --- N --- 注释）：
+ * @note  【为什么要有这个函数 —— 裁判系统官方功率限制规则】
+ *        裁判系统以 10Hz 监测底盘输出功率 P，与上限 Pl(chassis_power_limit) 比较。
+ *        为防止瞬间超一点就被罚，给了「缓冲能量 buffer_energy」当缓冲罐：
+ *          - 步兵/英雄默认 60J，吃飞坡增益后 250J；哨兵 200J
+ *          - P<Pl 时缓冲能量回满；P>Pl 时先消耗缓冲能量
+ *        缓冲能量耗尽后仍超限，每检测周期扣血 = 最大血量 × N% × 0.1：
+ *          K=(P-Pl)/Pl×100%，K≤10%→N=10，10%<K≤20%→N=20，K>20%→N=40；
+ *        哨兵则直接断底盘电。所以本函数核心目标 = 预测输出别超 Pl。
+ *  【本函数应对策略】整体分 5 步（见函数内 // --- N --- 注释）：
  *          0. 离线电机电流清零（安全）
  *          1. 加载功率模型系数，并按坡度自适应放大 k1
  *          2. 预测本帧 4 轮期望功率
@@ -550,42 +559,46 @@ void PowerLimit(Chassis_Info_Typedef *chassis_power_control)
         if (Chassis_Motor[i].is_offline)
             chassis_power_control->chassis_motor_set[i].current_set = 0;
     // --- 1. 物理常数加载与坡度自适应膨胀 ---
-    float k1_w = chassis_power_control->PowerCtrl[1].K1;
-    float k2_w = chassis_power_control->PowerCtrl[1].K2;
-    float k3_w = chassis_power_control->PowerCtrl[1].K3;
-    float k4_w = chassis_power_control->PowerCtrl[1].K4;
+    float k1_w = chassis_power_control->PowerCtrl[1].K1;  //电流平方项系数（铜损）
+    float k2_w = chassis_power_control->PowerCtrl[1].K2;  //转速平方项系数
+    float k3_w = chassis_power_control->PowerCtrl[1].K3;  //电流*转速交叉项
+    float k4_w = chassis_power_control->PowerCtrl[1].K4;  //4个轮子的空载损耗总和
+		//坡度
     float slope_max = fmaxf(fabs(chassis.Angle.Pitch), fabs(chassis.Angle.Roll));
     float inflation_factor_w = 1.0f;
     if (slope_max > 3.0f)
     {
         float factor = (slope_max - 3.0f) / 7.0f;
-        if (factor > 1.0f) factor = 1.0f;
-        inflation_factor_w += 0.35f * factor;
-    }
+        if (factor > 1.0f) factor = 1.0f;  
+			inflation_factor_w += 0.35f * factor;    //上坡要克服重力，同样转速耗电更多，故将电流项系数k1_w放大最多0.35
+    }                                          //让功率预测更保守，提前限流，避免上坡被超功率 
     k1_w *= inflation_factor_w;
+		
     // --- 2. 预测本帧期望功率 ---
-    float expected_total_power = k4_w;
+    float expected_total_power = k4_w;  //先算上空载损耗
     for (int i = 0; i < 4; i++)
     {
         if (!Chassis_Motor[i].is_offline)
         {
-            float w_w = chassis_power_control->chassis_motor_fdb[i].Data.Velocity;
-            float i_w = chassis_power_control->chassis_motor_set[i].current_set;
-            float p_w = k1_w * i_w * i_w + k2_w * w_w * w_w + k3_w * i_w * w_w;
-            if (p_w < 0.0f) p_w = 0.0f;
-            expected_total_power += p_w;
+            float w_w = chassis_power_control->chassis_motor_fdb[i].Data.Velocity;  //转速
+					float i_w = chassis_power_control->chassis_motor_set[i].current_set;      //PID算出的要发给电机的电流
+            float p_w = k1_w * i_w * i_w + k2_w * w_w * w_w + k3_w * i_w * w_w;     
+					if (p_w < 0.0f) p_w = 0.0f;  //负功率（制动）不算
+					expected_total_power += p_w;  //expecter_total_power ：如果不限功率，这一帧会耗多少电
         }
     }
     // --- 3. 裁判系统基础限幅与超级电容动态策略 ---
-    float ref_limit = chassis_power_control->ref_data.robot_status.chassis_power_limit;
-    ref_limit = (ref_limit < 10.0f) ? 75.0f : ref_limit;
+    float ref_limit = chassis_power_control->ref_data.robot_status.chassis_power_limit;  //拿裁判系统的功率上限
+    ref_limit = (ref_limit < 10.0f) ? 75.0f : ref_limit;  //没数据就默认值75W
     // --- 缓冲能量控制 ---
-    float buffer_energy = chassis_power_control->ref_data.power_heat_data.buffer_energy;
-    /* 注意: 疑似bug —— 判断条件是 buffer_energy > 20，但减去的是 35，
+    /* buffer_energy = 裁判系统下发的缓冲能量(单位 J)。步兵/英雄满值默认 60J，
+     * 飞坡增益期间 250J。本代码思路：缓冲能量越多，允许的功率上限越高(敢用劲跑)。
+     * 注意: 疑似bug —— 判断条件是 buffer_energy > 20，但减去的是 35，
      * 当缓冲能量在 20~35 之间时 (buffer_energy-35) 为负，反而会大幅削减功率。
      * 直觉上这里应该是 buffer_energy > 35 才对，调功率时留意这一行。 */
+    float buffer_energy = chassis_power_control->ref_data.power_heat_data.buffer_energy;  //拿裁判系统的缓冲能量
     if (buffer_energy > 20.0f)
-        ref_limit += 3*(buffer_energy - 35.0f);
+			ref_limit += 3*(buffer_energy - 35.0f);  //缓冲能量越满，功率上限就往上抬
     // 超电策略
     float cap_voltage = chassis_power_control->super_power.capa_voltage;
     float safe_margin = 6.0f;
@@ -670,13 +683,20 @@ void PowerLimit(Chassis_Info_Typedef *chassis_power_control)
 
 /**
  * @brief 把发射数据打包成 CAN 帧发给云台（ID 0x23，走 FDCAN2）
- * @note  数据格式：speed×100 存 int16（Data[0..1]），heat/heatlimit/cooling_value
+ * @note  【裁判系统枪口热量规则】(底盘自己不控射速，只把热量数据转发给云台算射速)
+ *         设热量上限 Q0(heatlimit)、当前热量 Q1(heat)：
+ *           - 每检测到 1 发 17mm 弹 → Q1+10；1 发 42mm 弹 → Q1+100
+ *           - 热量按 10Hz 结算冷却，每周期降 (每秒冷却值/10)
+ *         超限惩罚：Q1>Q0 时 FPV 画面变花；Q0<Q1<2Q0 每 100ms 扣血
+ *         (Q1-Q0)/250×最大血量；Q1≥2Q0 立刻扣血并重置 Q1=2Q0。
+ *         所以云台要控制 Q1 始终低于 Q0，靠冷却值「回血」。
+ *  @note  数据格式：speed×100 存 int16（Data[0..1]），heat/heatlimit/cooling_value
  *        各占 16bit（大端：高字节在前）。speed==0 时默认 11.5 作兜底值。
  * @param FDCAN_TxFrame 发送帧结构体指针
  * @param speed 弹速 (m/s)
- * @param heat 枪口热量
- * @param heatlimit 枪口热量上限
- * @param shooter_barrel_cooling_value 枪管冷却值
+ * @param heat 枪口当前热量 Q1
+ * @param heatlimit 枪口热量上限 Q0
+ * @param shooter_barrel_cooling_value 枪管每秒冷却值
  * @retval 无
  */
 void Transmit_Shoot_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, float speed, int16_t heat, int16_t heatlimit, int16_t shooter_barrel_cooling_value)

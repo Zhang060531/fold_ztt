@@ -54,7 +54,7 @@ typedef struct {
 	  float vision_y_offect;         
     float vision_x_offect;           
 	  uint8_t vision_flag;
-     uint8_t target_type;
+     uint8_t target_type;  
 	  int16_t Distence;
     uint8_t shoot_flag;   // 1字节
     float vision_fps;            // 视觉帧率(Hz), 每秒刷新

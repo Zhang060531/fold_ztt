@@ -3,7 +3,7 @@
 <title>Static Call Graph - [.\chassis\chassis.axf]</title></head>
 <body><HR>
 <H1>Static Call Graph for image .\chassis\chassis.axf</H1><HR>
-<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 6240002: Last Updated: Mon Sep 14 20:51:50 2026
+<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 6240002: Last Updated: Sat Oct  3 21:32:03 2026
 <BR><P>
 <H3>Maximum Stack Usage =        624 bytes + Unknown(Functions without stacksize, Cycles, Untraceable Function Pointers)</H3><H3>
 Call chain for Maximum Stack Depth:</H3>
@@ -1752,10 +1752,10 @@ Global Symbols
 <BR><BR>[Stack]<UL><LI>Max Depth = 84<LI>Call Chain = HAL_DMA_Init &rArr; DMA_CheckFifoParam
 </UL>
 <BR>[Calls]<UL><LI><a href="#[f9]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GetTick
-<LI><a href="#[17e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;DMA_CalcDMAMUXRequestGenBaseAndMask
 <LI><a href="#[17d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;DMA_CalcDMAMUXChannelBaseAndMask
 <LI><a href="#[17c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;DMA_CalcBaseAndBitshift
 <LI><a href="#[17b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;DMA_CheckFifoParam
+<LI><a href="#[17e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;DMA_CalcDMAMUXRequestGenBaseAndMask
 </UL>
 <BR>[Called By]<UL><LI><a href="#[16a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_ADC_MspInit
 <LI><a href="#[250]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MX_DMA_Init
@@ -3774,7 +3774,7 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[214]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_TIM_PWM_ConfigChannel
 </UL>
 
-<P><STRONG><a name="[b8]"></a>Test_Task</STRONG> (Thumb, 40 bytes, Stack size 16 bytes, test_task.o(.text.Test_Task))
+<P><STRONG><a name="[b8]"></a>Test_Task</STRONG> (Thumb, 48 bytes, Stack size 16 bytes, test_task.o(.text.Test_Task))
 <BR><BR>[Stack]<UL><LI>Max Depth = 364 + Unknown Stack Size
 <LI>Call Chain = Test_Task &rArr; osDelay &rArr; vTaskDelay &rArr; xTaskResumeAll &rArr; xTaskIncrementTick &rArr; SEGGER_SYSVIEW_OnTaskStartReady &rArr; _SendPacket &rArr; _HandleIncomingPacket &rArr; SEGGER_SYSVIEW_Start &rArr;  _SendPacket (Cycle)
 </UL>

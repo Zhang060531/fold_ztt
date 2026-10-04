@@ -48,4 +48,13 @@ extern void BSP_USART_Init(void);
  * @note   通过 USART7 以 DMA 方式发送，VoFa 端选 JustFloat 协议即可看到曲线
  */
 extern void USART_Vofa_Justfloat_Transmit(float SendValue1,float SendValue2,float SendValue3);
+
+/**
+ * @brief  向 VoFa+ 上位机发送任意 N 个 float 波形数据（JustFloat 协议通用版）
+ * @param  data  指向 float 数组的指针（要发送的 N 个数据）
+ * @param  num   数据个数（通道数），如传 9 就是 9 条曲线
+ * @retval 无
+ * @note   与 3 通道版同协议、同串口（USART7）
+ */
+extern void USART_Vofa_Justfloat_Transmit_N(const float *data, uint8_t num);
 #endif

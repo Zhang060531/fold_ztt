@@ -44,25 +44,35 @@ void Test_Task(void const * argument)
 //			gimbal.gyro.set[YAW],             // CH3: yaw 目标角速度(内环设定=外环输出)
 //			gimbal.gyro.fdb[YAW]              // CH4: yaw 角速度反馈(内环反馈)
 //		);
-
+  
 		/* ---- 可替换的变量（想换掉上面 4 个就用这些）----
 		 * gimbal.motor_set[YAW].Torque   内环输出(力矩 N·m)，看是否顶到 ±2.5 限幅
 		 * gimbal.angle.relative_set[YAW] 相对模式的角度设定(°)
 		 * gimbal.angle.relative_fdb[YAW] 相对模式的角度反馈(°)
 		 */
 		
+		  USART_Vofa_Justfloat_Transmit4(
+			gimbal.angle.absolute_set[YAW],   // CH1: yaw 角度设定(外环输入)
+			gimbal.angle.absolute_fdb[YAW],   // CH2: yaw 角度反馈(外环反馈)
+			gimbal.gyro.set[YAW],             // CH3: yaw 目标角速度(内环设定=外环输出)
+			gimbal.gyro.fdb[YAW]);              // CH4: yaw 角速度反馈(内环反馈)
+
+			
 //		  USART_Vofa_Justfloat_Transmit4(
 //			gimbal.angle.absolute_set[PITCH],   // CH1: yaw 角度设定(外环输入)
 //			gimbal.angle.absolute_fdb[PITCH],   // CH2: yaw 角度反馈(外环反馈)
 //			gimbal.gyro.set[PITCH],             // CH3: yaw 目标角速度(内环设定=外环输出)
-//			gimbal.gyro.fdb[PITCH]              // CH4: yaw 角速度反馈(内环反馈)
+//			gimbal.gyro.fdb[PITCH]);              // CH4: yaw 角速度反馈(内环反馈)
+
 //			
-			USART_Vofa_Justfloat_Transmit4(
-			INS_Info.Angle[0],  
-			INS_Info.Angle[1],             // CH3: 
-			INS_Info.Angle[2],
-			INS_Info.Yaw_Angle
-			);
+//			USART_Vofa_Justfloat_Transmit4(
+//			INS_Info.Angle[0],  
+//			INS_Info.Angle[1],             // CH3: 
+//			INS_Info.Angle[2],
+//			INS_Info.Yaw_Angle
+//			);
+
+			  //USART_Vofa_Justfloat_Transmit4(shoot.fri_motor_fdb[0].Data.Velocity,shoot.fri_motor_fdb[1].Data.Velocity,0,0);
 			
 //			USART_Vofa_Justfloat_Transmit4(
 //			INS_Info.Angle[0],  

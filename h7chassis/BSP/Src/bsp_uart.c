@@ -376,3 +376,44 @@ void USART_Vofa_Justfloat_Transmit(float SendValue1,float SendValue2,float SendV
 
 
 }
+
+/* VoFa JustFloat 单帧最多发送的通道数(发送缓冲按此分配) */
+#define VOFA_MAX_CHANNELS  20u
+
+/**
+ * @brief  向 VoFa+ 上位机发送任意 N 个 float 波形数据(JustFloat 协议通用版)
+ * @param  data  指向 float 数组的指针(要发送的 N 个数据)
+ * @param  num   数据个数(通道数)，比如传 9 就是画 9 条曲线
+ * @retval 无
+ * @note   与 USART_Vofa_Justfloat_Transmit(固定 3 通道) 同协议、同串口(USART7)。
+ *         数据按小端 4 字节依次拷贝，帧尾 0x00 0x00 0x80 0x7F 结束。
+ *         921600 波特率下 9 通道(40 字节/帧) 1kHz 调用没问题；num 超上限会被截断。
+ */
+void USART_Vofa_Justfloat_Transmit_N(const float *data, uint8_t num)
+{
+	if (num > VOFA_MAX_CHANNELS)
+		num = VOFA_MAX_CHANNELS;                      /* 防越界 */
+
+	/* 发送缓冲放 AXI SRAM 段：H7 的 DMA 访问不到 DTCM，必须放这里 */
+	__attribute__((section (".AXI_SRAM"))) static uint8_t Tx_Buf[VOFA_MAX_CHANNELS * 4 + 4];
+
+	uint8_t *p = Tx_Buf;
+	for (uint8_t i = 0; i < num; i++)
+	{
+		uint8_t *f = (uint8_t *)&data[i];              /* float 按字节访问(STM32 小端) */
+		p[0] = f[0];
+		p[1] = f[1];
+		p[2] = f[2];
+		p[3] = f[3];
+		p += 4;
+	}
+
+	/* JustFloat 帧尾：0x00 0x00 0x80 0x7F = float 的 +inf */
+	p[0] = 0x00;
+	p[1] = 0x00;
+	p[2] = 0x80;
+	p[3] = 0x7F;
+
+	/* static 缓冲 + DMA 异步发送：调用频率过高(上一帧没发完)会覆盖数据 */
+	HAL_UART_Transmit_DMA(&huart7, Tx_Buf, (uint16_t)(num * 4u + 4u));
+}

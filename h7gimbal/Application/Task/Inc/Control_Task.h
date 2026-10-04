@@ -30,11 +30,22 @@
  *  - 底盘跟随 PID 在 FOLLOW_PID_* 一组
  * =====================================================================
  */
-#define CHANNEL_PITCH_SCALE_FACTOR 9000.0f  // 俯仰摇杆→角度系数(越大动得越慢)
-#define CHANNEL_YAW_SCALE_FACTOR 5000.0f    // 偏航摇杆→角度系数
+#define CHANNEL_PITCH_SCALE_FACTOR 6000.0f  // 俯仰摇杆→角度系数(越大动得越慢)     //9000
+#define CHANNEL_YAW_SCALE_FACTOR 3000.0f    // 偏航摇杆→角度系数                   //5000
 #define MOUSE_SCALE_FACTOR 200.0f           // 鼠标→角度系数
 #define KEY_SCALE_FACTOR 20.0f              // 键盘→底盘速度系数
 #define ROTATE_KEY_SCALE_FACTOR (KEY_SCALE_FACTOR / 2)  // 键盘→旋转速度系数
+
+
+
+/* ============【新增】偏航轴 速度前馈（手动控制，提高 yaw 响应） ============
+ * 把「摇杆/鼠标拨出的目标角速度」直接前馈到内环角速度设定上，
+ * 绕开角度环靠误差慢慢累积的滞后：摇杆一动云台立刻跟着转。
+ * 原理：参考角速度 = 本周期角度增量 ÷ 控制周期(1ms)。
+ * 调车：yaw_vel_ff_gain 越接近 1 响应越快，但抖舵/超调就越明显，可适当调小。
+ *       yaw_vel_ff_gain 是全局变量，Keil/CLion 调试时在 Watch 窗口添加它即可实时修改。 */
+#define GIMBAL_CONTROL_PERIOD_S 0.001f   /*【新增】云台控制周期(s)，对应 Control_Task 里 osDelay(1) 的 1ms */
+extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)，默认 0.5 */
 
 
 /* =====================================================================
@@ -52,13 +63,6 @@
 #define PITCH_SHELL_PID_MAX_IOUT 100   // 积分限幅(°/s)
 #define PITCH_SHELL_PID_MAX_OUT 400    // 输出限幅(目标角速度上限 °/s)
 
-/* ---- 偏航轴 外环(角度环) —— 手动控制 ---- */
-#define YAW_SHELL_PID_KP 20
-#define YAW_SHELL_PID_KI 0
-#define YAW_SHELL_PID_KD 0.55
-#define YAW_SHELL_PID_MAX_IOUT 100
-#define YAW_SHELL_PID_MAX_OUT 400
-
 /* ---- 俯仰轴 内环(角速度环) —— 手动控制 ----
  * 注意 KP 是负数：pitch 电机安装方向与 yaw 相反，需要反号才能负反馈 */
 #define PITCH_CORE_PID_KP -0.013
@@ -66,6 +70,13 @@
 #define PITCH_CORE_PID_KD 0
 #define PITCH_CORE_PID_MAX_IOUT 0.5
 #define PITCH_CORE_PID_MAX_OUT 2.5   // 输出限幅(力矩上限 N·m)
+
+/* ---- 偏航轴 外环(角度环) —— 手动控制 ---- */
+#define YAW_SHELL_PID_KP 20
+#define YAW_SHELL_PID_KI 0
+#define YAW_SHELL_PID_KD 0.55
+#define YAW_SHELL_PID_MAX_IOUT 100
+#define YAW_SHELL_PID_MAX_OUT 400
 
 /* ---- 偏航轴 内环(角速度环) —— 手动控制 ---- */
 #define YAW_CORE_PID_KP 0.03
@@ -76,13 +87,20 @@
 
 /* ---- 俯仰轴 外环(角度环) —— 视觉自瞄用 ---- */
 #define PITCH_VISION_SHELL_PID_KP 20
-#define PITCH_VISION_SHELL_PID_KI 0.39
+#define PITCH_VISION_SHELL_PID_KI 0.39   //0.2
 #define PITCH_VISION_SHELL_PID_KD 0
 #define PITCH_VISION_SHELL_PID_MAX_IOUT 100
-#define PITCH_VISION_SHELL_PID_MAX_OUT 400
+#define PITCH_VISION_SHELL_PID_MAX_OUT 400 
+
+/* ---- 俯仰轴 内环(角速度环) —— 视觉自瞄用(注意 KP 为负) ---- */
+#define VISION_PITCH_CORE_PID_KP -0.018  
+#define VISION_PITCH_CORE_PID_KI 0
+#define VISION_PITCH_CORE_PID_KD 0
+#define VISION_PITCH_CORE_PID_MAX_IOUT 2.5
+#define VISION_PITCH_CORE_PID_MAX_OUT 2.5
 
 /* ---- 偏航轴 外环(角度环) —— 视觉自瞄用 ---- */
-#define YAW_VISION_SHELL_PID_KP 28                       //23
+#define YAW_VISION_SHELL_PID_KP 28                       //15
 #define YAW_VISION_SHELL_PID_KI 0
 #define YAW_VISION_SHELL_PID_KD 0
 #define YAW_VISION_SHELL_PID_MAX_IOUT 100
@@ -90,18 +108,11 @@
 #define VISION_SHELL_INT_SEP_ERR 2.0f   // 视觉外环积分分离阈值(角度误差超过它就取消积分)
 
 /* ---- 偏航轴 内环(角速度环) —— 视觉自瞄用 ---- */
-#define VISION_YAW_CORE_PID_KP 0.049
-#define VISION_YAW_CORE_PID_KI 0.079
+#define VISION_YAW_CORE_PID_KP 0.03  //0.03
+#define VISION_YAW_CORE_PID_KI 0.02   //0
 #define VISION_YAW_CORE_PID_KD 0
 #define VISION_YAW_CORE_PID_MAX_IOUT 2
-#define VISION_YAW_CORE_PID_MAX_OUT 2.5
-
-/* ---- 俯仰轴 内环(角速度环) —— 视觉自瞄用(注意 KP 为负) ---- */
-#define VISION_PITCH_CORE_PID_KP -0.018
-#define VISION_PITCH_CORE_PID_KI 0
-#define VISION_PITCH_CORE_PID_KD 0
-#define VISION_PITCH_CORE_PID_MAX_IOUT 2.5
-#define VISION_PITCH_CORE_PID_MAX_OUT 2.5
+#define VISION_YAW_CORE_PID_MAX_OUT 2.5     //YAW输出限幅
 
 /* 视觉速度前馈 */
 #define VISION_VEL_FF_GAIN      0.95f   /* 速度前馈增益 (0~1), 1.0=完全前馈 */
@@ -115,7 +126,7 @@
 
 
 /* ---- 底盘跟随云台 PID（云台转过一定角度，底盘跟着转回去，见 ChassisSpeedSet）---- */
-#define FOLLOW_PID_KP -0.03
+#define FOLLOW_PID_KP -0.02
 #define FOLLOW_PID_KI 0
 #define FOLLOW_PID_KD 0
 #define FOLLOW_PID_MAX_IOUT 0.2
@@ -190,7 +201,7 @@
 #define CHASSIS_UI_YAW_ID 0x299 //0x302
 
 
-#define REMOTE_CHANNLE_TO_CHASSIS_SPEED 0.01f	
+#define REMOTE_CHANNLE_TO_CHASSIS_SPEED 0.015f                                                //0.01	
 #define ROTATE_REMOTE_CHANNLE_TO_CHASSIS_SPEED (REMOTE_CHANNLE_TO_CHASSIS_SPEED / 50)
 
 
@@ -341,7 +352,7 @@ typedef struct
 
 	Robot_Behavior_e robot_mode_set;
 	Robot_Behavior_e robot_last_mode;
-	
+	  
 	Chassis_Behavior_e chassis_mode;
 	Chassis_Behavior_e chassis_last_mode;
 	

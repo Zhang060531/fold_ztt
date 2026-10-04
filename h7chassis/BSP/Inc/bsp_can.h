@@ -107,3 +107,4 @@ extern  int float_to_uint(float x, float x_min, float x_max, int bits);      /*!
 extern void Sent_Superpower_Data(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,float set_power);//uint16_t temp_power /*!< 向电管发送目标功率(帧 0x210) */
 
 #endif
+

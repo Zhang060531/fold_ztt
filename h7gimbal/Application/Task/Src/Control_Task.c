@@ -67,6 +67,34 @@ extern Image_Transmission_Info_TypeDef Image_Transmission_Info;  // 图传数据
 extern VT13_Info_TypeDef VT13_Info;    // VT13 图传遥控器数据（键鼠）
 extern Remote_Info_Typedef remote_ctrl;  // 大疆 DR16 遥控器数据（摇杆拨杆）
 extern Shoot_t shoot;                  // 发射机构数据（摩擦轮/拨弹轮）
+
+
+
+
+/*********************************************************/
+/* ============ 遥控器 → 车 的控制链=========== */
+/*********************************************************/
+/* 本工程同时接了两套遥控，代码里它们的输入是「相加」的：
+ *
+ * [大疆 DT7 遥控器] (DR16 接收机, SBUS/USART5) —— 变量 remote_ctrl
+ *     rc.ch[0]  右摇杆左右 → 云台 yaw 偏航目标角度
+ *     rc.ch[1]  右摇杆上下 → 云台 pitch 俯仰目标角度
+ *     rc.ch[2]  左摇杆      → 底盘左右平移 (配合 A/D 键)
+ *     rc.ch[3]  左摇杆      → 底盘前后平移 (配合 W/S 键)
+ *     rc.ch[4]  拨轮        → 拨弹轮 (发射)
+ *     rc.s[0]   左上拨杆    → 云台模式开关 (2/3=普通, 其它=零力)
+ *     rc.s[1]   右上拨杆    → 作战模式 (1=自瞄, 3=云底跟随, 2=小陀螺/旋转)
+ *     rc.mouse  鼠标        → 瞄准 (pitch/yaw 微调)
+ *     rc.key    键盘 WASD   → 底盘平移 + 模式快捷键
+ *
+ * [图传遥控器 VT13] (图传/USART1 透传) —— 变量 VT13_Info
+ *     RC.Channel[0..3] 摇杆4通道      RC.Wheel 滚轮
+ *     RC.Switch/Stop/Left/Right/Trigger 开关/停止/左/右/扳机
+ *     Key.V 键盘        Mouse.* 鼠标
+ *
+ * 【只想用 DT7、停用图传】把所有 "VT13_Info.*" 那一项删掉(或注释掉)即可，
+ *    DT7 的 remote_ctrl 部分本来就在，删掉 VT13 项后车就只听 DT7。
+ *********************************************************/
 uint32_t vision_last_valid_time[2] = {0, 0};  // YAW/PITCH 最后一次收到有效视觉数据的时间
 #define VISION_DATA_TIMEOUT_MS 500  // 500ms 没收到视觉数据就认为视觉丢失
 
@@ -76,6 +104,14 @@ static float vision_target_vel[2] = {0};                   // 估算的目标角
 /* 发给视觉的Pitch角度低通滤波 */
 static LowPassFilter1p_Info_TypeDef pitch_tx_lpf;          // 发送Pitch角度滤波
 /*********************************************************/
+
+/*【新增】yaw 手动控制的速度前馈：参考角速度(°/s)，YawAngleRefSet 里算好，pidCalc 里前馈到内环 */
+static float yaw_ref_vel = 0.0f;
+volatile float yaw_vel_ff_gain = 0.9f;   /*【新增】速度前馈增益，调试时在 Watch 窗口修改该值即可实时调参 */
+
+/*【新增】pitch 手动控制的速度前馈：和 yaw 一样，PitchAngleRefSet 里算好，pidCalc 里前馈到内环 */
+static float pitch_ref_vel = 0.0f;
+volatile float pitch_vel_ff_gain = 0.9f; /*【新增】pitch 速度前馈增益，调试时在 Watch 窗口修改该值即可实时调参 */
 
 
 /*********************************************************/
@@ -233,11 +269,13 @@ static void GetDataFdb(Gimbal_t* gimbal_fdb)
     gimbal_fdb->time_last = gimbal_fdb->time_new;
     gimbal_fdb->time_new.model = xTaskGetTickCount();
 
+		//看函数返回值  覆盖？？？
     gimbal_fdb->time_new.gimbal[PITCH] = GetPitchMotorFdb(&(gimbal_fdb->pitch_motor_fdb));
     gimbal_fdb->time_new.gimbal[YAW] = GetYawMotorFdb(&(gimbal_fdb->yaw_motor_fdb));
     gimbal_fdb->time_new.gimbal[PITCH] = GetMotorPitchRelativeAngle(&(gimbal_fdb->angle.relative_fdb[PITCH]));
     gimbal_fdb->time_new.gimbal[YAW] = GetMotorYawRelativeAngle(&(gimbal_fdb->angle.relative_fdb[YAW]));
-
+		
+		//标记头还是尾
     if ((gimbal_fdb->angle.relative_fdb[YAW] > 90 && gimbal_fdb->angle.relative_fdb[YAW] < 180) || (gimbal_fdb->angle.relative_fdb[YAW] < -90&&gimbal_fdb->angle.relative_fdb[YAW] > -180))
         head_flag = TAIL;
     else if (gimbal_fdb->angle.relative_fdb[YAW] < 90 && gimbal_fdb->angle.relative_fdb[YAW] > -90)
@@ -254,7 +292,7 @@ static uint32_t last_check_time = 0;
 uint32_t current_time = HAL_GetTick();
 
 if (current_time - last_check_time >= 10) 
-{
+{  
     last_check_time = current_time;
     
     if (gimbal_fdb->vision_data.vision_flag == 1) 
@@ -311,42 +349,46 @@ int8_t ui_rotate_mode_last = 0;
  *         - 按 Shift 键/拨杆切换：底盘旋转模式 ↔ 底盘跟随模式（循环）
  *         - 按 R 键：底盘「不跟随云台」↔「跟随云台」切换
  *         - 按 Q 键：把拨杆 s[0]/s[1] 清零（一键归零，方便切换）
- *         - 按住鼠标右键：进入视觉自瞄模式 VISION_MODE
+ *         - 按住鼠标右键 或 右上拨杆 s[1]=1 档：进入视觉自瞄模式 VISION_MODE
  */
 static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
-{
+{		
     gimbal_mode_set->robot_last_mode = gimbal_mode_set->robot_mode_set;
     gimbal_mode_set->motor_last_mode[PITCH] = gimbal_mode_set->motor_mode[PITCH];
     gimbal_mode_set->motor_last_mode[YAW] = gimbal_mode_set->motor_mode[YAW];
-
+		
+	    //都没用到这些 作用在哪？
     static int16_t ch0_val = 0;
     static int16_t ch0_last_val = 0;
     static int16_t ch1_val = 0;
     static int16_t ch1_last_val = 0;
+	
     static  uint16_t REF_key_robot_mode = 0;
     static  uint16_t REF_key_robot_mode_last = 0;
     static int8_t REF_mouse_right = 0;
     static int8_t REF_mouse_right_last = 0;
     static int8_t REF_mouse_middle = 0;
     static int8_t REF_mouse_middle_last = 0;
-
+		
     static int8_t power_save = 0;
     static int8_t power_save_last = 0;
-
+		  
+    /* —— 缓存两套遥控的输入(供边沿检测用)，注意 DT7 和 图传VT13 是两套不同的遥控 —— */
     ch0_last_val = ch0_val;
-    ch0_val = remote_ctrl.rc.ch[0];
+    ch0_val = remote_ctrl.rc.ch[0];            // 【DT7】右摇杆左右 → 云台yaw
     ch1_last_val = ch1_val;
-    ch1_val = remote_ctrl.rc.ch[1];
+    ch1_val = remote_ctrl.rc.ch[1];            // 【DT7】右摇杆上下 → 云台pitch
+		
     REF_key_robot_mode_last = REF_key_robot_mode ;
-    REF_key_robot_mode = VT13_Info.Key.V;
+    REF_key_robot_mode = VT13_Info.Key.V;      // 【图传VT13】键盘
     REF_mouse_right_last = REF_mouse_right;
-    REF_mouse_right = VT13_Info.Mouse.Press_R;
+    REF_mouse_right = VT13_Info.Mouse.Press_R; // 【图传VT13】鼠标右键
     REF_mouse_middle_last = REF_mouse_middle;
     ui_rotate_mode_last = ui_rotate_mode;
-    REF_mouse_middle = VT13_Info.Mouse.Press_M;
-    ui_rotate_mode = VT13_Info.RC.Left  ;
+    REF_mouse_middle = VT13_Info.Mouse.Press_M;// 【图传VT13】鼠标中键
+    ui_rotate_mode = VT13_Info.RC.Left  ;      // 【图传VT13】左键(旋转模式开关)
     pause_last = pause;
-    pause = VT13_Info.RC.Stop;
+    pause = VT13_Info.RC.Stop;                 // 【图传VT13】停止键(切零力)
 
     if (((REF_key_robot_mode & KEY_PRESSED_OFFSET_Z) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_Z) == 0) || (pause == 1 && pause_last == 0))
     {
@@ -414,7 +456,9 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
         remote_ctrl.rc.s[1] = 0;
     }
 		
-    if (REF_mouse_right == 1||VT13_Info.RC.Switch==2) /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /*【修改】自瞄触发条件：原只有「图传鼠标右键 REF_mouse_right / VT13 拨杆 Switch==2」，
+     * 现新增 remote_ctrl.rc.s[1]==1（右上拨杆 1 档=0x01），拨到该档也进入自瞄 VISION_MODE。 */
+    if (REF_mouse_right == 1||VT13_Info.RC.Switch==2 || remote_ctrl.rc.s[1] == 1)
     {
         gimbal_mode_set->motor_mode[YAW] = VISION_MODE;
         gimbal_mode_set->motor_mode[PITCH] = VISION_MODE;
@@ -431,24 +475,27 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
 
 /**
  * @brief 根据遥控器拨杆 s[1] 设定底盘跟随模式
- * @note  s[1]=3 → 底盘跟随云台(小陀螺)；s[1]=2 → 底盘旋转模式；
- *        s[1]=1 → 底盘不跟随云台（云台独立转动，底盘按摇杆方向平移）
+ * @note  【修改】右上拨杆 s[1] 三档：s[1]=1(上,0x01)=自瞄，s[1]=3(中)=云底跟随，
+ *        s[1]=2(下)=小陀螺/旋转。原「s[1]=1=不跟随」已去掉，
+ *        「不跟随」仍可用 R 键切换（见 GimbalModeSet）。
  */
 static void ChassisModeSet(Gimbal_t* ch_mode_set)
 {
     ch_mode_set->chassis_last_mode = ch_mode_set->chassis_mode;
 
     if (remote_ctrl.rc.s[1] == 3)
-    {
+    {  
         ch_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
     }
     else if (remote_ctrl.rc.s[1] == 2)
     {
         ch_mode_set->chassis_mode = CHASSIS_ROTATE_MODE;
     }
-    else if (remote_ctrl.rc.s[1] == 1)
+    else if (remote_ctrl.rc.s[1] == 1)   //【修改】原=CHASSIS_NO_FOLLOW_GIMBAL_MODE(不跟随)，现改成"自瞄"档
     {
-        ch_mode_set->chassis_mode = CHASSIS_NO_FOLLOW_GIMBAL_MODE;
+        // 自瞄档：底盘跟随云台。云台自瞄由 GimbalModeSet 里 s[1]==1 触发 VISION_MODE 完成；
+        // 自瞄时底盘只平移、不旋转，旋转交给云台自己（见 ChassisSpeedSet 的 VISION_MODE 分支）。
+        ch_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
     }
 }
 
@@ -517,21 +564,31 @@ static void PitchAngleRefSet(Gimbal_t* angle_set)
     float add_angle = 0;
     if (angle_set->robot_mode_set == ZERO_FORCE_MODE)
     {
+        pitch_ref_vel = 0.0f;   //【新增】无力模式无指令，参考速度清零
         return;
     }
     else if (angle_set->robot_mode_set == INIT_MODE)
     {
         add_angle = 0.0f;
         addPitchAngle(angle_set, add_angle);
+        pitch_ref_vel = 0.0f;   //【新增】初始化模式参考速度清零
     }
     else if (angle_set->robot_mode_set == NORMAL_MODE)
     {   //pitch同下 有一样的结论
+        // 俯仰目标角增量 = 摇杆输入 之和：【DT7】ch[1](右摇杆上下) + 【DT7】mouse.y(鼠标Y)
+        //                               +【图传VT13】Channel[1] +【图传VT13】Mouse.Y
+        // 想只用 DT7：删掉下面带 VT13_Info 的两项即可
         add_angle = -(float)remote_ctrl.rc.ch[1] / CHANNEL_PITCH_SCALE_FACTOR - (float)VT13_Info.RC.Channel[1] / CHANNEL_PITCH_SCALE_FACTOR - (float)remote_ctrl.mouse.y / MOUSE_SCALE_FACTOR - VT13_Info.Mouse.Y / MOUSE_SCALE_FACTOR;
         addPitchAngle(angle_set, -add_angle);
+
+        //【新增】速度前馈：把本周期角度增量换算成参考角速度(°/s)。
+        //        addPitchAngle 传的是 -add_angle，所以实际增量是 -add_angle，参考速度也跟着取反。
+        pitch_ref_vel = -add_angle / GIMBAL_CONTROL_PERIOD_S;
     }
     else if (angle_set->robot_mode_set == VISION_FOLLOW)
     {
         angle_set->vision_data.angle_set[PITCH] = 0;
+        pitch_ref_vel = 0.0f;   //【新增】视觉模式走 vision_target_vel 前馈，手动前馈关闭
     }
 }
 
@@ -546,24 +603,36 @@ static void YawAngleRefSet(Gimbal_t* angle_set)
 
     if (angle_set->robot_mode_set == ZERO_FORCE_MODE)
     {
+        yaw_ref_vel = 0.0f;   //【新增】无力模式无指令，参考速度清零
         return;
     }
     else if (angle_set->robot_mode_set == INIT_MODE)
     {
         add_angle = 0.0f;
         addYawAngle(angle_set, add_angle);
+			
+        yaw_ref_vel = 0.0f;   //【新增】初始化模式参考速度清零
     }
     else if (angle_set->robot_mode_set == NORMAL_MODE)
     {
-			//调试发现将 VT13_Info.RC.Channel[0]改个正负 左推摇杆 车（云台+底盘）右转
+				//调试发现将 VT13_Info.RC.Channel[0]改个正负 左推摇杆 车（云台+底盘）右转
+        // 偏航目标角增量 = 摇杆输入 之和：【DT7】ch[0](右摇杆左右) +【图传VT13】Wheel(滚轮)
+        //                              +【图传VT13】Channel[0] +【图传VT13】Mouse.X
+        // 想只用 DT7：删掉下面带 VT13_Info 的几项即可
         add_angle = -(float)remote_ctrl.rc.ch[0] / (float)CHANNEL_YAW_SCALE_FACTOR - (float)VT13_Info.RC.Wheel / CHANNEL_YAW_SCALE_FACTOR - (VT13_Info.RC.Channel[0]) / CHANNEL_YAW_SCALE_FACTOR - VT13_Info.Mouse.X /  MOUSE_SCALE_FACTOR;
 
         addYawAngle(angle_set, add_angle);
+				
+				
+        //【新增】速度前馈：把本周期角度增量换算成参考角速度(°/s)。
+        //        增量(°/周期) ÷ 周期(s) = 角速度(°/s)，供 pidCalc 前馈到内环速度设定。
+        yaw_ref_vel = add_angle / GIMBAL_CONTROL_PERIOD_S;
     }
     else if (angle_set->robot_mode_set == VISION_FOLLOW)
     {
         angle_set->vision_data.angle_set[YAW] = 0;
-    }
+        yaw_ref_vel = 0.0f;   //【新增】视觉模式走 vision_target_vel 前馈，手动前馈关闭
+		}
 }
 float max_step = 0.02;
 /**
@@ -581,9 +650,15 @@ float max_step = 0.02;
  */
 static void ChassisSpeedSet(Gimbal_t* chassis_speed)
 {
+    // ===== 静态/局部变量说明 =====
+    // set_chassis_head / set_chassis_tail：车头/车尾跟随的「死区」阈值(单位:度)
+    //  - 车头模式：yaw 相对角在 ±0.5° 内就算对准，不再给旋转量
+    //  - 车尾模式：yaw 相对角贴近 ±180°(偏差 0.5° 内)就算对准
     static float set_chassis_head = 0.5, set_chassis_tail = 179.5;
-    float angle_set = 0.0f;
+    float angle_set = 0.0f;   // 本函数内未再使用，历史遗留(可删)
+    // x_temp/y_temp 必须是 static：ramp_speed 需要「上一次的值」来算平滑增量
     static float x_temp, y_temp;
+    // 无力模式 / 初始化模式：底盘静止，三轴速度清零后直接返回
     if (chassis_speed->robot_mode_set == ZERO_FORCE_MODE)
     {
         chassis_speed->chassis_set[CHASSIS_X] = 0;
@@ -599,11 +674,22 @@ static void ChassisSpeedSet(Gimbal_t* chassis_speed)
         return;
     }
 
+    // ============ 模式 1：云台底盘跟随 ============
+    // 特点：底盘朝向会自动跟着云台 yaw 转，始终保持车头与云台一致。
+    // 内部又分两种子情况(见下面的 if)：
+    //  - 云台不在自瞄(手动)：平移 + 用 follow_pid 让底盘跟着云台转回去
+    //  - 云台在自瞄(VISION_MODE)：只平移、不旋转，旋转交给云台自己
     if (chassis_speed->chassis_mode == CHASSIS_FOLLOW_GIMBAL_MODE)
     {
 			  
+        // 云台不在自瞄(至少一个轴不是 VISION_MODE)：手动操作，底盘「平移 + 跟随旋转」都做
         if (chassis_speed->motor_mode[PITCH] != VISION_MODE || chassis_speed->motor_mode[YAW] != VISION_MODE)
         {
+            // 1) 读前后/左右输入并平滑：x_temp=左右、y_temp=前后。
+            //    摇杆：【DT7】remote_ctrl.rc.ch[2]/ch[3] 与【图传VT13】Channel[3]/[2] 两套叠加 + 键盘(W/A/S/D)，
+            //    ramp_speed 用上一次的值做增量限幅(max_step)，避免速度突变。
+            // 2) 下方 sin/cos 是把「云台坐标系」的速度旋转成「底盘坐标系」。
+            // 3) 再按 head_flag 用车头/车尾 PID 补出旋转量(Z)，让车头跟上云台。
             x_temp = ramp_speed(x_temp, Int16ToFloat(remote_ctrl.rc.ch[2]) * REMOTE_CHANNLE_TO_CHASSIS_SPEED  + VT13_Info.RC.Channel[3] * REMOTE_CHANNLE_TO_CHASSIS_SPEED - ((remote_ctrl.key.v & KEY_PRESSED_OFFSET_A) > 0) * KEY_SCALE_FACTOR + ((remote_ctrl.key.v & KEY_PRESSED_OFFSET_D) > 0) * KEY_SCALE_FACTOR -
                                 ((VT13_Info.Key.V & KEY_PRESSED_OFFSET_A) > 0) * key_scale_factor  + ((VT13_Info.Key.V & KEY_PRESSED_OFFSET_D) > 0) * key_scale_factor, max_step);
 
@@ -614,6 +700,10 @@ static void ChassisSpeedSet(Gimbal_t* chassis_speed)
             chassis_speed->chassis_set[CHASSIS_Y] = (y_temp * cos(-chassis_speed->angle.relative_fdb[YAW] * ANGLE_TO_RAD) - x_temp * sin(-chassis_speed->angle.relative_fdb[YAW] * ANGLE_TO_RAD));
 
 
+            // ===== 车头模式：让底盘转到「车头正对云台」(yaw 相对角 → 0°) =====
+            // 技巧：先直接把 yaw 反馈值以每帧 0.5° 步长往 0 拉(软回中)，
+            //       等效于把 PID 看到的误差平滑减小，避免突然给大旋转速度。
+            // 注意：下方 if/else 两个分支其实完全一样(历史遗留)，效果就是「恒做 PID 回中」。
             if (head_flag == HEAD)
             {
                 if (chassis_speed->angle.relative_fdb[YAW] > 0)
@@ -631,6 +721,9 @@ static void ChassisSpeedSet(Gimbal_t* chassis_speed)
                 else
                     chassis_speed->chassis_set[CHASSIS_Z] = PID_Calculate(&follow_pid, 0, chassis_speed->angle.relative_fdb[YAW]);
             }
+            // ===== 车尾模式：云台相对底盘转了约 180°，对准方向是 ±180° 而非 0° =====
+            // 先把 yaw 反馈以每帧 0.5° 步长往 ±180° 拉(软回中)，
+            // 已经贴近 ±180°(死区内)则不再转；否则按所在半区往 +180° 或 -180° 方向转回去。
             else if (head_flag == TAIL)
             {
                 if (chassis_speed->angle.relative_fdb[YAW] - 180 > 0)
@@ -654,6 +747,8 @@ static void ChassisSpeedSet(Gimbal_t* chassis_speed)
         }
         else
         {
+            // ===== 自瞄中(VISION_MODE)：底盘只平移、不旋转(Z 恒为 0) =====
+            // 云台自己转去追目标，底盘只管前后左右走；下方注释掉的旧代码(直接当速度、不做旋转)已废弃。
 //           chassis_speed->chassis_set[CHASSIS_X] = ramp_speed(chassis_speed->chassis_set[CHASSIS_X], Int16ToFloat(remote_ctrl.rc.ch[2]) * REMOTE_CHANNLE_TO_CHASSIS_SPEED  + VT13_Info.RC.Channel[3] * REMOTE_CHANNLE_TO_CHASSIS_SPEED - ((remote_ctrl.key.v & KEY_PRESSED_OFFSET_A) > 0) * KEY_SCALE_FACTOR + ((remote_ctrl.key.v & KEY_PRESSED_OFFSET_D) > 0) * KEY_SCALE_FACTOR -
 //                                ((VT13_Info.Key.V & KEY_PRESSED_OFFSET_A) > 0) * key_scale_factor  + ((VT13_Info.Key.V & KEY_PRESSED_OFFSET_D) > 0) * key_scale_factor, max_step);
 
@@ -690,6 +785,9 @@ static void ChassisSpeedSet(Gimbal_t* chassis_speed)
 
         }
     }
+    // ============ 模式 2：云台底盘不跟随 ============
+    // 特点：云台和底盘彻底解耦，云台怎么转底盘都不跟着转。
+    // 平移(前后左右)照常用摇杆+WASD；旋转(Z)直接用摇杆 ch[0] + 鼠标 X 控制(-0.05 是灵敏度)。
     else if (chassis_speed->chassis_mode == CHASSIS_NO_FOLLOW_GIMBAL_MODE)
     {
            chassis_speed->chassis_set[CHASSIS_X] = ramp_speed(chassis_speed->chassis_set[CHASSIS_X], Int16ToFloat(remote_ctrl.rc.ch[2]) * REMOTE_CHANNLE_TO_CHASSIS_SPEED  + VT13_Info.RC.Channel[3] * REMOTE_CHANNLE_TO_CHASSIS_SPEED - ((remote_ctrl.key.v & KEY_PRESSED_OFFSET_A) > 0) * KEY_SCALE_FACTOR + ((remote_ctrl.key.v & KEY_PRESSED_OFFSET_D) > 0) * KEY_SCALE_FACTOR -
@@ -700,6 +798,10 @@ static void ChassisSpeedSet(Gimbal_t* chassis_speed)
 					 chassis_speed->chassis_set[CHASSIS_Z] = -0.05*(Int16ToFloat(remote_ctrl.rc.ch[0]) * REMOTE_CHANNLE_TO_CHASSIS_SPEED + VT13_Info.RC.Channel[0] * REMOTE_CHANNLE_TO_CHASSIS_SPEED + remote_ctrl.mouse.x*100 / MOUSE_SCALE_FACTOR * KEY_SCALE_FACTOR + VT13_Info.Mouse.X*100 / MOUSE_SCALE_FACTOR);
 
     }
+    // ============ 模式 3：底盘旋转(小陀螺) ============
+    // 特点：底盘一边平移一边绕自身旋转。旋转量 Z 用一个随平移速度衰减的式子：
+    //   Z = -3 * exp(-1.1 * sqrt(X²+Y²))，
+    //   即「静止时转最快(≈-3)，平移越快转得越慢」，避免转着转着把平移方向带飞。
     else if (chassis_speed->chassis_mode == CHASSIS_ROTATE_MODE)
     {
            x_temp = ramp_speed(x_temp, Int16ToFloat(remote_ctrl.rc.ch[2]) * REMOTE_CHANNLE_TO_CHASSIS_SPEED  + VT13_Info.RC.Channel[3] * REMOTE_CHANNLE_TO_CHASSIS_SPEED - ((remote_ctrl.key.v & KEY_PRESSED_OFFSET_A) > 0) * KEY_SCALE_FACTOR + ((remote_ctrl.key.v & KEY_PRESSED_OFFSET_D) > 0) * KEY_SCALE_FACTOR -
@@ -709,8 +811,8 @@ static void ChassisSpeedSet(Gimbal_t* chassis_speed)
                                 ((VT13_Info.Key.V & KEY_PRESSED_OFFSET_W) > 0) * key_scale_factor  - ((VT13_Info.Key.V & KEY_PRESSED_OFFSET_S) > 0) * key_scale_factor, max_step);
         chassis_speed->chassis_set[CHASSIS_X] = (y_temp * sin(-chassis_speed->angle.relative_fdb[YAW] * ANGLE_TO_RAD) + x_temp * cos(-chassis_speed->angle.relative_fdb[YAW] * ANGLE_TO_RAD));
         chassis_speed->chassis_set[CHASSIS_Y] = (y_temp * cos(-chassis_speed->angle.relative_fdb[YAW] * ANGLE_TO_RAD) - x_temp * sin(-chassis_speed->angle.relative_fdb[YAW] * ANGLE_TO_RAD));
-        chassis_speed->chassis_set[CHASSIS_Z] = -3 * expf(-1.1f * sqrtf(chassis_speed->chassis_set[CHASSIS_X] * chassis_speed->chassis_set[CHASSIS_X] + chassis_speed->chassis_set[CHASSIS_Y] * chassis_speed->chassis_set[CHASSIS_Y]));
-//        chassis_speed->chassis_set[CHASSIS_Z]=-2;
+        chassis_speed->chassis_set[CHASSIS_Z] = -4.5 * expf(-1.1f * sqrtf(chassis_speed->chassis_set[CHASSIS_X] * chassis_speed->chassis_set[CHASSIS_X] + chassis_speed->chassis_set[CHASSIS_Y] * chassis_speed->chassis_set[CHASSIS_Y]));  //-3
+//        chassis_speed->chassis_set[CHASSIS_Z]=-2;  
     }
 
 
@@ -780,7 +882,7 @@ static void addPitchAngle(Gimbal_t* pitch, float add)
     {
         pitch->angle.absolute_set[PITCH] += add;
         MinMaxConstrain(&pitch->angle.absolute_set[PITCH], PITCH_ABSOLUTE_MIN_ANGLE, PITCH_ABSOLUTE_MAX_ANGLE);
-    }
+    }  
     else if (pitch->motor_mode[PITCH] == RELATIVE_MODE)
     {
         pitch->angle.relative_set[PITCH] += add;
@@ -826,8 +928,13 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
     float angle_set = 0.0f;
     uint32_t current_time = HAL_GetTick();
     uint32_t data_timeout = current_time - vision_last_valid_time[axis];
-
-    // ================== 1. 视觉模式 ==================
+		
+    // ================== 1. 视觉模式(自瞄) ==================
+    // 「云台怎么跟上目标」的核心就在这：
+    //   妙算发来目标应指向的角度 vision_x/y_offect(度) → 加上手动修正 Yaw/Pitch_set
+    //   → 得到目标绝对角度 → 外环角度环PID(算出目标角速度) → 内环角速度环PID(算出力矩)
+    //   → 力矩发给达妙电机，云台就转过去对准目标。
+    //   视觉把 offset 算得越准、PID 越跟手，枪口就越稳地咬住目标。
     if (pid_calc->motor_mode[axis] == VISION_MODE)
     {
         if (data_timeout > VISION_DATA_TIMEOUT_MS)
@@ -847,24 +954,24 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
             if (axis == YAW)
             {
                 // 预测补偿：旋转靶外推视觉偏移到当前时刻
-                float yaw_offset = pid_calc->vision_data.vision_x_offect;
-                if (Vision_Data.target_type != 0)
+                float yaw_offset = pid_calc->vision_data.vision_x_offect;  
+							if (Vision_Data.target_type != 0)   //非0为旋转靶   若为旋转靶则要预测
                 {
                     yaw_offset += vision_target_vel[YAW] * VISION_PREDICT_TIME_S;
                 }
-                float target_yaw_abs = yaw_offset + Yaw_set;
+                float target_yaw_abs = yaw_offset + Yaw_set;                             //当前位置+偏移量=目标位置
 
                 // 防止跨越半圈
                 target_yaw_abs = PreventFullCircleConstrain(target_yaw_abs, pid_calc->angle.absolute_fdb[axis]);
 
-                // 外环PID + 速度前馈 → 内环角速度设定
-
-               // if(Vision_Data.target_type==0){
-               // pid_calc->gyro.set[axis] = PID_Calculate(&vision_shell_pid[axis], target_yaw_abs, pid_calc->angle.absolute_fdb[axis])
-               //                          + vision_target_vel[YAW] * VISION_VEL_FF_GAIN;}
-                //else{
+								
+                // 外环PID + 速度前馈 → 内环角速度设定  
+            // if(Vision_Data.target_type==0){
+            // pid_calc->gyro.set[axis] = PID_Calculate(&vision_shell_pid[axis], target_yaw_abs, pid_calc->angle.absolute_fdb[axis])
+            //                          + vision_target_vel[YAW] * VISION_VEL_FF_GAIN;}
+             //else{
                 pid_calc->gyro.set[axis] = PID_Calculate(&vision_shell_pid[axis], target_yaw_abs, pid_calc->angle.absolute_fdb[axis]);
-                //}
+             //}
 
                 pid_calc->motor_set[axis].Torque = PID_Calculate(&vision_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
             }
@@ -892,7 +999,9 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
         if (axis == PITCH)
         {
             angle_set = PreventFullCircleConstrain(pid_calc->angle.absolute_set[axis], pid_calc->angle.absolute_fdb[axis]);
-            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.absolute_fdb[axis]);
+            //【新增】速度前馈：角度环输出 + 参考角速度×增益，直接喂给内环速度设定
+            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.absolute_fdb[axis])
+                                     + pitch_vel_ff_gain * pitch_ref_vel;
             pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
         }
         else if (axis == YAW)
@@ -904,7 +1013,10 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
             else
             {
                 angle_set = PreventFullCircleConstrain(pid_calc->angle.absolute_set[axis], pid_calc->angle.absolute_fdb[axis]);
-                pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.absolute_fdb[axis]);
+                //【新增】速度前馈：角度环输出 + 参考角速度×增益，直接喂给内环速度设定。
+                //        摇杆一动，内环立刻拿到目标速度，不用等角度误差慢慢累积，响应更快。
+                pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.absolute_fdb[axis])
+                                         + yaw_vel_ff_gain * yaw_ref_vel;
             }
             pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
         }
@@ -916,13 +1028,17 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
         if (axis == PITCH)
         {
             angle_set = PreventFullCircleConstrain(pid_calc->angle.relative_set[axis], pid_calc->angle.relative_fdb[axis]);
-            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.relative_fdb[axis]); 
+            //【新增】速度前馈：同绝对模式，角度环输出 + 参考角速度×增益喂给内环速度设定
+            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.relative_fdb[axis])
+                                     + pitch_vel_ff_gain * pitch_ref_vel;
             pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
         }
         else if (axis == YAW)
         {
             angle_set = PreventFullCircleConstrain(pid_calc->angle.relative_set[axis], pid_calc->angle.relative_fdb[axis]);
-            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.relative_fdb[axis]); 
+            //【新增】速度前馈：同绝对模式，角度环输出 + 参考角速度×增益喂给内环速度设定
+            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.relative_fdb[axis])
+                                     + yaw_vel_ff_gain * yaw_ref_vel;
             pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
         }
     }
@@ -1054,7 +1170,7 @@ void TransmitGimbal_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame)
 
     
     Data_UIandYAW[2] = shoot.sht_motor_set.current_set;
-
+    
     
     Data_UIandYAW[3] = 0; 
 

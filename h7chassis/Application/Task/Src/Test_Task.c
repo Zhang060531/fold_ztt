@@ -36,9 +36,22 @@ extern Referee_System_Info_TypeDef ref_data;
 void Test_Task(void const * argument)
 {
 
-	while(1)   /* 空循环，预留测试代码位置 */
+	while(1)   /* 功率拟合测试：发 9 通道给 VoFa+（4 电流 + 4 转速 + 1 实测功率） */
 	{
-		USART_Vofa_Justfloat_Transmit(INS_Info.Yaw_Angle,INS_Info.Pitch_Angle,INS_Info.Roll_Angle);
+//		float vofa_data[9];
+//		vofa_data[0] = (float)chassis.chassis_motor_set[0].current_set;   // i1 电流指令
+//		vofa_data[1] = (float)chassis.chassis_motor_set[1].current_set;   // i2
+//		vofa_data[2] = (float)chassis.chassis_motor_set[2].current_set;   // i3
+//		vofa_data[3] = (float)chassis.chassis_motor_set[3].current_set;   // i4
+//		vofa_data[4] = (float)chassis.chassis_motor_fdb[0].Data.Velocity; // w1 转速 RPM
+//		vofa_data[5] = (float)chassis.chassis_motor_fdb[1].Data.Velocity; // w2
+//		vofa_data[6] = (float)chassis.chassis_motor_fdb[2].Data.Velocity; // w3
+//		vofa_data[7] = (float)chassis.chassis_motor_fdb[3].Data.Velocity; // w4
+//		vofa_data[8] = chassis.super_power.curren_chassis_power;          // P 底盘实测功率 W
+//		USART_Vofa_Justfloat_Transmit_N(vofa_data, 9);
+		
+			
+			USART_Vofa_Justfloat_Transmit(Shoot_Motor.Data.Velocity ,0,0);
     osDelay(1);		
 
 	}

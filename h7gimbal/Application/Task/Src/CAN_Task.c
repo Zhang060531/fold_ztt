@@ -56,40 +56,74 @@ extern Shoot_t shoot;
 /* USER CODE END Header_CAN_Task */
 float kp=0,speed=13.8;                    // 调试用变量(未参与实际控制)
 float front1 = -1.26,front = 0;   //-1.11  // front1=pitch 重力补偿系数，front=当前补偿值
+float g_offset =0;
+// 重力补偿参数结构体
+typedef struct {
+    float mass;              // m: 负载质量 (KG)
+    float cog_angle_offset;  // 质心差角 (度)
+    float cog_distance;      // 力臂长度 (米)
+    float torque_coeff;      // 转矩系数 (如果是扭矩控制电机，设为1.0)
+    const float G;           // 重力加速度 (9.8)
+} GravityCompParam_t;
+
+//测 测 测 定义+赋值
+GravityCompParam_t g_param = {
+    .mass = 2.585f,
+    .cog_angle_offset = -1.101f, 
+    .cog_distance = 0.08696f,
+	.torque_coeff = 1.0f,  //这个达秒电机用不上 后面如果用6020记得加上
+    .G = 9.79136f
+};
+
+/**
+ * @brief 计算重力补偿前馈值
+ * @param param 重力补偿参数指针
+ * @param pitch_angle 当前Pitch角度
+ * @return 重力补偿力矩值
+ */
+float calc_gravity_compensation(const GravityCompParam_t *param) {
+    float angle_rad = (gimbal.angle.absolute_fdb[PITCH] + param->cog_angle_offset)*2*PI/360;
+		float g_offset = param->mass * param->G * cosf(angle_rad) * param->cog_distance;          //cosf和cos有啥区别
+    
+    // 如果是DJI 6020等电流/速度控制电机，乘以转矩系数
+    //g_offset *= param->torque_coeff;
+    
+    return g_offset;
+}
+
 void CAN_Task(void const * argument)
 {
     TickType_t CAN_Task_SysTick = 0;
     for (;;)
     {
-	    front = front1 * cos(gimbal.angle.absolute_fdb[PITCH] * 2 * PI / 360);   // pitch 重力补偿：随俯仰角余弦变化，水平时最大
-
+			  //老版重力补偿
+	      front = front1 * cos(gimbal.angle.absolute_fdb[PITCH] * 2 * PI / 360);   // pitch 重力补偿：随俯仰角余弦变化，水平时最大
+			  //新版重力补偿前馈
+        g_offset = -calc_gravity_compensation(&g_param);
         CAN_Task_SysTick = osKernelSysTick();
         // CAN-FD
         if (gimbal.pitch_motor_fdb.Data.State != 1)
         {
- //         DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[0], Motor_Save_Zero_Position);
+					//DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[0], Motor_Save_Zero_Position);  //保存当前位置为零点
             DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[0], Motor_Clear);   // 清除俯仰电机错误
-			DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[0], Motor_Enable);   // 使能俯仰电机
-
+						DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[0], Motor_Enable);   // 使能俯仰电机
         }
         if (gimbal.yaw_motor_fdb.Data.State != 1)
         {
-			DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Clear);    // 清除偏航电机错误
+						DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Clear);    // 清除偏航电机错误
             DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Enable);  // 使能偏航电机
-			//DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Save_Zero_Position);
-
-
+						//DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Save_Zero_++Position);  //保存yaw零点
         }
 
 				TransmitChassis_Info(&FDCAN2_TxFrame);   // 0x21 帧：底盘速度指令
-        TransmitGimbal_Info(&FDCAN2_TxFrame);    // 0x22 帧：云台状态
-        DM_Motor_CAN_TxMessage(&FDCAN2_TxFrame, &DM_4310_Motor[0], 0, 0, 0, 0, gimbal.motor_set[PITCH].Torque+front);   // pitch 力矩 + 重力补偿
+        TransmitGimbal_Info(&FDCAN2_TxFrame);    // 0x22 帧：云台状态                                           
+        DM_Motor_CAN_TxMessage(&FDCAN2_TxFrame, &DM_4310_Motor[0], 0, 0, 0, 0, gimbal.motor_set[PITCH].Torque+front);   // pitch 力矩 + 重力补偿  原front
         DM_Motor_CAN_TxMessage(&FDCAN2_TxFrame, &DM_4310_Motor[1], 0, 0, 0, 0, gimbal.motor_set[YAW].Torque);    // yaw 力矩
         TransmitFriMotorCurrent(&FDCAN1_TxFrame,
                                 shoot.fri_motor_set[FR1].current_set,
                                 shoot.fri_motor_set[FR2].current_set);   // CAN 0x200 帧：摩擦轮电流
 
-		SentToVision(&FDCAN3_TxFrame,shoot.initial_speed, gimbal.vision_data.mode, 0);   // CAN3 帧：弹速+模式发给视觉
+				SentToVision(&FDCAN3_TxFrame,shoot.initial_speed, gimbal.vision_data.mode, 0);   // CAN3 帧：弹速+模式发给视觉
         SentToVisionangle(&FDCAN3_TxFrame, Quaternion_Info);   // CAN3 帧：四元数姿态发给视觉
    if(CAN_Task_SysTick % 2== 0){
 
@@ -100,5 +134,4 @@ void CAN_Task(void const * argument)
     }
 
 }
-
 

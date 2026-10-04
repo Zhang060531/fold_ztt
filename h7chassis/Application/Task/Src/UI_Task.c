@@ -237,7 +237,7 @@ void UI_Task(void const * argument)
     TickType_t UI_Task_SysTick = 0;
 
     // 任务开启前进行一次全量初始化
-    ui_init_g();
+    ui_init_g();  //把全部图形按默认内容“添加”到客户端
 
     while (1)
     {
@@ -256,8 +256,8 @@ void UI_Task(void const * argument)
              ui_init_g();
          }
         
-        UI_Data_Calculate();
-        ui_update_g();
+        UI_Data_Calculate();  //把各状态量换算成 角度/数字/颜色
+        ui_update_g();        //检测哪些变了 只把变了的重发
         osDelay(1); // 保证系统调度不断
     }
 }

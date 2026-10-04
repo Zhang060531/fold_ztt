@@ -102,12 +102,13 @@ void Referee_System_Info_Update(uint8_t *Buff, Referee_System_Info_TypeDef *Refe
 
   switch (cmd_id)
   {
-#ifdef GAME_STATUS_ID 
+#ifdef GAME_STATUS_ID
     case GAME_STATUS_ID:
-      Referee_System_Info->game_status.game_type          = p_data[0] & 0x0F;
-      Referee_System_Info->game_status.game_progress      = (p_data[0] & 0xF0) >> 4;
-      Referee_System_Info->game_status.stage_remain_time = bit8TObit16(&p_data[1]);
-      Referee_System_Info->game_status.SyncTimeStamp     = bit8TObit64(&p_data[3]);
+      /* 比赛状态：p_data[0] 一个字节拆成两个 4 位 —— 低 4 位游戏类型，高 4 位比赛阶段 */
+      Referee_System_Info->game_status.game_type          = p_data[0] & 0x0F;        /* 比赛类型(低4位) */
+      Referee_System_Info->game_status.game_progress      = (p_data[0] & 0xF0) >> 4; /* 比赛阶段(高4位) */
+      Referee_System_Info->game_status.stage_remain_time  = bit8TObit16(&p_data[1]); /* 本阶段剩余时间(秒) */
+      Referee_System_Info->game_status.SyncTimeStamp      = bit8TObit64(&p_data[3]); /* 同步时间戳 */
       break;
 #endif
 
@@ -119,16 +120,17 @@ void Referee_System_Info_Update(uint8_t *Buff, Referee_System_Info_TypeDef *Refe
 
 #ifdef GAME_ROBOT_HP_ID
     case GAME_ROBOT_HP_ID:
-      Referee_System_Info->game_robot_HP.ally_1_robot_HP  = bit8TObit16(&p_data[0]);
-      Referee_System_Info->game_robot_HP.ally_2_robot_HP  = bit8TObit16(&p_data[2]);
-      Referee_System_Info->game_robot_HP.ally_3_robot_HP  = bit8TObit16(&p_data[4]);
-      Referee_System_Info->game_robot_HP.ally_4_robot_HP  = bit8TObit16(&p_data[6]);
-      Referee_System_Info->game_robot_HP.damage_difference= bit8TObit16(&p_data[8]);
-      Referee_System_Info->game_robot_HP.ally_7_robot_HP  = bit8TObit16(&p_data[10]);
-      Referee_System_Info->game_robot_HP.ally_outpost_HP  = bit8TObit16(&p_data[12]);
-      Referee_System_Info->game_robot_HP.ally_base_HP     = bit8TObit16(&p_data[14]);
-      Referee_System_Info->game_robot_HP.enemy_outpost_HP = bit8TObit16(&p_data[16]);
-      Referee_System_Info->game_robot_HP.enemy_base_HP    = bit8TObit16(&p_data[18]);
+      /* 全场血量(20字节)：ally=我方，enemy=敌方，每项 uint16 占 2 字节，所以偏移每次 +2 */
+      Referee_System_Info->game_robot_HP.ally_1_robot_HP   = bit8TObit16(&p_data[0]);  /* 我方1号(英雄) */
+      Referee_System_Info->game_robot_HP.ally_2_robot_HP   = bit8TObit16(&p_data[2]);  /* 我方2号(工程) */
+      Referee_System_Info->game_robot_HP.ally_3_robot_HP   = bit8TObit16(&p_data[4]);  /* 我方3号(步兵) */
+      Referee_System_Info->game_robot_HP.ally_4_robot_HP   = bit8TObit16(&p_data[6]);  /* 我方4号(步兵) */
+      Referee_System_Info->game_robot_HP.damage_difference = bit8TObit16(&p_data[8]);  /* 伤害差 */
+      Referee_System_Info->game_robot_HP.ally_7_robot_HP   = bit8TObit16(&p_data[10]); /* 我方7号(哨兵) */
+      Referee_System_Info->game_robot_HP.ally_outpost_HP   = bit8TObit16(&p_data[12]); /* 我方前哨站 */
+      Referee_System_Info->game_robot_HP.ally_base_HP      = bit8TObit16(&p_data[14]); /* 我方基地 */
+      Referee_System_Info->game_robot_HP.enemy_outpost_HP  = bit8TObit16(&p_data[16]); /* 敌方前哨站 */
+      Referee_System_Info->game_robot_HP.enemy_base_HP     = bit8TObit16(&p_data[18]); /* 敌方基地 */
       break;
 #endif
 
@@ -155,44 +157,49 @@ void Referee_System_Info_Update(uint8_t *Buff, Referee_System_Info_TypeDef *Refe
 
 #ifdef ROBOT_STATUS_ID
     case ROBOT_STATUS_ID:
-      Referee_System_Info->robot_status.robot_id                        = p_data[0];
-      Referee_System_Info->robot_status.robot_level                     = p_data[1];
-      Referee_System_Info->robot_status.current_HP                      = bit8TObit16(&p_data[2]);
-      Referee_System_Info->robot_status.maximum_HP                      = bit8TObit16(&p_data[4]);
-      Referee_System_Info->robot_status.shooter_barrel_cooling_value    = bit8TObit16(&p_data[6]);
-      Referee_System_Info->robot_status.shooter_barrel_heat_limit       = bit8TObit16(&p_data[8]);
-      Referee_System_Info->robot_status.chassis_power_limit             = bit8TObit16(&p_data[10]);
-      Referee_System_Info->robot_status.bullet_speed_limit              = bit8TOfloat32(&p_data[12]);
-      Referee_System_Info->robot_status.power_management_gimbal_output  = (p_data[16] & 0x01);
-      Referee_System_Info->robot_status.power_management_chassis_output = (p_data[16] & 0x02) >> 1;
-      Referee_System_Info->robot_status.power_management_shooter_output = (p_data[16] & 0x04) >> 2;
+      /* 本机状态(17字节)：底盘功率限制、血量、枪口热量都在这。字段偏移见 Referee_System.h 的 robot_status_t。 */
+      Referee_System_Info->robot_status.robot_id                        = p_data[0];                 /* 机器人编号 */
+      Referee_System_Info->robot_status.robot_level                     = p_data[1];                 /* 机器人等级 */
+      Referee_System_Info->robot_status.current_HP                      = bit8TObit16(&p_data[2]);   /* 当前血量 */
+      Referee_System_Info->robot_status.maximum_HP                      = bit8TObit16(&p_data[4]);   /* 满血血量 */
+      Referee_System_Info->robot_status.shooter_barrel_cooling_value    = bit8TObit16(&p_data[6]);   /* 枪口每秒冷却值 */
+      Referee_System_Info->robot_status.shooter_barrel_heat_limit       = bit8TObit16(&p_data[8]);   /* 枪口热量上限 */
+      Referee_System_Info->robot_status.chassis_power_limit             = bit8TObit16(&p_data[10]);  /* ★底盘功率上限(W) */
+      Referee_System_Info->robot_status.bullet_speed_limit              = bit8TOfloat32(&p_data[12]);/* 弹速上限(m/s) */
+      /* p_data[16] 一个字节装了 3 个 1 位开关(位域)，逐位取出 */
+      Referee_System_Info->robot_status.power_management_gimbal_output  = (p_data[16] & 0x01);       /* 云台输出使能 */
+      Referee_System_Info->robot_status.power_management_chassis_output = (p_data[16] & 0x02) >> 1;  /* ★底盘输出使能 */
+      Referee_System_Info->robot_status.power_management_shooter_output = (p_data[16] & 0x04) >> 2;  /* 发射输出使能 */
       break;
 #endif
 
 #ifdef POWER_HEAT_DATA_ID
     case POWER_HEAT_DATA_ID:
-      Referee_System_Info->power_heat_data.buffer_energy             = bit8TObit16(&p_data[8]);
-      Referee_System_Info->power_heat_data.shooter_17mm_barrel_heat = bit8TObit16(&p_data[10]);
-      Referee_System_Info->power_heat_data.shooter_42mm_barrel_heat = bit8TObit16(&p_data[12]);
+      /* 功率热量(14字节)：注意前 8 字节是保留位(reserved1/2/3)，真正数据从偏移 8 开始 */
+      Referee_System_Info->power_heat_data.buffer_energy             = bit8TObit16(&p_data[8]);   /* ★缓冲能量(功率环"回血"依据) */
+      Referee_System_Info->power_heat_data.shooter_17mm_barrel_heat = bit8TObit16(&p_data[10]);  /* 17mm 枪口热量(发给云台) */
+      Referee_System_Info->power_heat_data.shooter_42mm_barrel_heat = bit8TObit16(&p_data[12]);  /* 42mm 枪口热量(上位机显示) */
       break;
 #endif
 
 #ifdef ROBOT_POS_ID
     case ROBOT_POS_ID:
-      Referee_System_Info->robot_pos.x     = bit8TOfloat32(&p_data[0]);
-      Referee_System_Info->robot_pos.y     = bit8TOfloat32(&p_data[4]);
-      Referee_System_Info->robot_pos.angle = bit8TOfloat32(&p_data[8]);
+      /* 本机位姿(12字节)：裁判系统给的地图坐标，可用于定位/导航 */
+      Referee_System_Info->robot_pos.x     = bit8TOfloat32(&p_data[0]); /* X 坐标(m) */
+      Referee_System_Info->robot_pos.y     = bit8TOfloat32(&p_data[4]); /* Y 坐标(m) */
+      Referee_System_Info->robot_pos.angle = bit8TOfloat32(&p_data[8]); /* 朝向角(度) */
       break;
 #endif
 
 #ifdef BUFF_ID
     case BUFF_ID:
-      Referee_System_Info->buff.recovery_buff      = p_data[0];
-      Referee_System_Info->buff.cooling_buff       = bit8TObit16(&p_data[1]);
-      Referee_System_Info->buff.defence_buff       = p_data[3];
-      Referee_System_Info->buff.vulnerability_buff = p_data[4];
-      Referee_System_Info->buff.attack_buff        = bit8TObit16(&p_data[5]);
-      Referee_System_Info->buff.remaining_energy   = p_data[7];
+      /* 机器人增益(8字节)：吃 BUFF 后这些值会变，用于自适应战术 */
+      Referee_System_Info->buff.recovery_buff      = p_data[0];                 /* 回血增益 */
+      Referee_System_Info->buff.cooling_buff       = bit8TObit16(&p_data[1]);  /* 冷却增益 */
+      Referee_System_Info->buff.defence_buff       = p_data[3];                 /* 防御增益 */
+      Referee_System_Info->buff.vulnerability_buff = p_data[4];                 /* 易伤状态 */
+      Referee_System_Info->buff.attack_buff        = bit8TObit16(&p_data[5]);  /* 攻击增益 */
+      Referee_System_Info->buff.remaining_energy   = p_data[7];                 /* 剩余能量 */
       break;
 #endif
 
@@ -205,19 +212,21 @@ void Referee_System_Info_Update(uint8_t *Buff, Referee_System_Info_TypeDef *Refe
 
 #ifdef SHOOT_DATA_ID
     case SHOOT_DATA_ID:
-      Referee_System_Info->shoot_data.bullet_type          = p_data[0];
-      Referee_System_Info->shoot_data.shooter_number      = p_data[1];
-      Referee_System_Info->shoot_data.launching_frequency = p_data[2];
-      Referee_System_Info->shoot_data.initial_speed       = bit8TOfloat32(&p_data[3]);
+      /* 射击数据(7字节)：本工程的 initial_speed 会通过 CAN 0x23 转发给云台 */
+      Referee_System_Info->shoot_data.bullet_type          = p_data[0];               /* 弹种 */
+      Referee_System_Info->shoot_data.shooter_number       = p_data[1];               /* 发射机构编号 */
+      Referee_System_Info->shoot_data.launching_frequency  = p_data[2];               /* 射速(发/秒) */
+      Referee_System_Info->shoot_data.initial_speed        = bit8TOfloat32(&p_data[3]); /* 弹丸初速(m/s) */
       break;
 #endif
 
 #ifdef PROJECTILE_ALLOWANCE_ID
     case PROJECTILE_ALLOWANCE_ID:
-      Referee_System_Info->projectile_allowance.projectile_allowance_17mm     = bit8TObit16(&p_data[0]);
-      Referee_System_Info->projectile_allowance.projectile_allowance_42mm     = bit8TObit16(&p_data[2]);
-      Referee_System_Info->projectile_allowance.remaining_gold_coin           = bit8TObit16(&p_data[4]);
-      Referee_System_Info->projectile_allowance.projectile_allowance_fortress = bit8TObit16(&p_data[6]);
+      /* 弹丸余量(8字节) */
+      Referee_System_Info->projectile_allowance.projectile_allowance_17mm     = bit8TObit16(&p_data[0]); /* 17mm 剩余 */
+      Referee_System_Info->projectile_allowance.projectile_allowance_42mm     = bit8TObit16(&p_data[2]); /* 42mm 剩余 */
+      Referee_System_Info->projectile_allowance.remaining_gold_coin           = bit8TObit16(&p_data[4]); /* 剩余金币 */
+      Referee_System_Info->projectile_allowance.projectile_allowance_fortress = bit8TObit16(&p_data[6]); /* 堡垒弹丸剩余 */
       break;
 #endif
 
