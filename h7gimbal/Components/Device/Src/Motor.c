@@ -119,7 +119,7 @@ static float int32_to_float(int32_t value, float scale);
 static float uint32_to_float(uint32_t value, float scale);
 float filter_FR1(float temp,float alpha);
 float filter_FR2(float temp,float alpha);
-float filter_FR3(float temp,float alpha);
+
 float filter_sht(float temp,float alpha);
 void ConstrainLoop(float* output, float input, float min, float max);
 void TransmitFriMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2);
@@ -569,13 +569,3 @@ float filter_FR2(float temp,float alpha)
 
 }
 
-float filter_FR3(float temp,float alpha) 
-{
-    static float value,last_value;
-
-    value = temp * alpha + (1.0 - alpha) * last_value;
-    last_value=value;
-
-    return value;
-
-}

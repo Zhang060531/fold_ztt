@@ -57,7 +57,7 @@
 
 // 热量与前馈参数
 #define HEAT_17MM                 10      // 17mm弹丸单发热量
-#define COOLING_VALUE_DEFAULT     40      // 默认冷却速率(每秒)
+#define COOLING_VALUE_DEFAULT     40      // 默认冷却速率(每秒)   //没用到。
 #define FRI_ACCEL_FF_K            0.02f // 摩擦轮角加速度前馈系数0.02 
 
 /*********************************************************/
@@ -102,11 +102,6 @@ float local_heat = 0.0f;                     // 本地估算热量 (防延迟)
 uint16_t last_referee_heat = 0;              // 记录裁判系统上次的热量值
 uint32_t last_heat_tick = 0;                 // 热量更新时间戳
 
-// 用于检测键位变化的变量
-int s1_val_last = 0;
-int c1_val_last = 0;
-int s2_val_last = 0;
-
 // 拨弹轮控制模式
 typedef enum
 {
@@ -127,13 +122,7 @@ static void Shoot_Speed_Set(Shoot_t* shoot);
 static void Shoot_Position_Set(Shoot_t* shoot);
 static void Shoot_PID_Calculate(Shoot_t* shoot);
 static void Shoot_Trigger_Handler(Shoot_t* shoot);
-static float Normalize_Angle(float angle);
-static float Normalize_Angle_Error(float error);
-static float Get_Angle_Error(float target, float current);
 
-// 键鼠缓存
-static int16_t ch0_val = 0, ch0_last_val = 0;
-static int16_t ch1_val = 0, ch1_last_val = 0;
 
 static uint16_t REF_key_robot_mode = 0, REF_key_robot_mode_last = 0;
 static int8_t REF_mouse_right = 0, REF_mouse_right_last = 0;
@@ -163,7 +152,7 @@ void Shoot_Task(void const *pvParameters)
 
 static void Shoot_Get_Feedback(Shoot_t* shoot)
 {
-    // 1. 获取常规电机数据 [MODIFIED] 删除FR3
+    // 1. 获取常规电机数据 [MODIFIED] 
     GetMotorFR1Fdb(&shoot->fri_motor_fdb[FR1]);
     GetMotorFR2Fdb(&shoot->fri_motor_fdb[FR2]);
 
@@ -209,11 +198,10 @@ Shoot_Mode_e Shoot_Mode_Update(Shoot_t* shoot)
     Shoot_Mode_e new_mode = shoot->shoot_mode;
 
     int s2_val = remote_ctrl.rc.s[0];
-
-    // 状态覆写逻辑
     if (s2_val == 2) {
         if (new_mode == SHOOT_STOP) new_mode = SHOOT_READY;
-    } else if (s2_val == 3) {
+    } 
+		else if (s2_val == 3) {
         if (new_mode == SHOOT_READY || new_mode == SHOOT_NORMAL) new_mode = SHOOT_STOP;
     }
       
@@ -273,32 +261,32 @@ Shoot_Mode_e Shoot_Mode_Update(Shoot_t* shoot)
             shoot_trigger_flag = 1; 
         }
     }
-
-    // ===============================================
-
     return new_mode;
 }
-int timedd,a=0,bbb=0;
+
 static void Shoot_Trigger_Handler(Shoot_t* shoot)
 {
-    // 1. 缓存键鼠和遥控器数据 (保持原样)
-    ch0_last_val = ch0_val; ch0_val = remote_ctrl.rc.ch[0];  // 【DT7】右摇杆左右 → yaw
-    ch1_last_val = ch1_val; ch1_val = remote_ctrl.rc.ch[1];  // 【DT7】右摇杆上下 → pitch
+
+	  //图传+键鼠
+    REF_key_robot_mode_last = REF_key_robot_mode;
+		REF_key_robot_mode = VT13_Info.Key.V;              // 【图传VT13】键盘
 	
-    REF_key_robot_mode_last = REF_key_robot_mode; REF_key_robot_mode = VT13_Info.Key.V;              // 【图传VT13】键盘
-    REF_mouse_right_last = REF_mouse_right; REF_mouse_right = VT13_Info.Mouse.Press_R;               // 【图传VT13】鼠标右键
-    REF_mouse_left_last = REF_mouse_left; REF_mouse_left = VT13_Info.Mouse.Press_L;                  // 【图传VT13】鼠标左键
-    REF_mouse_middle_last = REF_mouse_middle; REF_mouse_middle = VT13_Info.Mouse.Press_M;            // 【图传VT13】鼠标中键
+    REF_mouse_right_last = REF_mouse_right;
+		REF_mouse_right = VT13_Info.Mouse.Press_R;               // 【图传VT13】鼠标右键
 	
-    ui_fri_mode_last = ui_fri_mode; ui_fri_mode = VT13_Info.RC.Right;      // 【图传VT13】右键(摩擦轮开关)
-    ui_shoot_mode_last = ui_shoot_mode; ui_shoot_mode = VT13_Info.RC.Trigger; // 【图传VT13】扳机键(发射)
+    REF_mouse_left_last = REF_mouse_left; 
+		REF_mouse_left = VT13_Info.Mouse.Press_L;                  // 【图传VT13】鼠标左键
+	
+    REF_mouse_middle_last = REF_mouse_middle; 
+		REF_mouse_middle = VT13_Info.Mouse.Press_M;            // 【图传VT13】鼠标中键
+	
+    ui_fri_mode_last = ui_fri_mode;
+		ui_fri_mode = VT13_Info.RC.Right;      // 【图传VT13】右键(摩擦轮开关)
+	
+    ui_shoot_mode_last = ui_shoot_mode;
+		ui_shoot_mode = VT13_Info.RC.Trigger; // 【图传VT13】扳机键(发射)
     
-    int s1_val = remote_ctrl.rc.s[1];  // 【DT7】右上拨杆 → 底盘模式
-    int c1_val = remote_ctrl.rc.ch[4]; // 【DT7】拨轮 → 拨弹(发射)
-    
-	
-	
-    // 2. 开火判定：一颗子弹要打出去，必须同时满足下面 4 个条件
+    //  开火判定：一颗子弹要打出去，必须同时满足下面 4 个条件
     //    (a) 有触发信号 vision_trigger（下面分「自瞄/手动」两种情况算出来）
     //    (b) 热量允许 heat_permit：剩余热量还够至少 2 发
     //    (c) 当前状态是 SHOOT_READY：说明上一发已经拨完、拨弹轮转到位
@@ -306,71 +294,36 @@ static void Shoot_Trigger_Handler(Shoot_t* shoot)
     //    全部满足 → 把 shoot_mode 置成 SHOOT_NORMAL，交给 Shoot_Position_Set 拨一发。
     uint8_t heat_permit = (shoot->shooter_barrel_heat_limit - local_heat) >= (HEAT_17MM * 2.0f);  //（b）热量允许
 
-    // 提取所有触发源的状态（遥控器拨轮、鼠标左键、UI按键）
-		uint8_t is_trigger_active = (REF_mouse_right == 1) || (ui_shoot_mode == 1);                     //（a）有触发信号
-    // 视觉触发保持原有逻辑（通常视觉自瞄确认对准后由代码控制连发）
-    uint8_t vision_trigger = 0;
-
     // 【DT7】拨轮 ch[4] 当作发射扳机：转离中位(超过阈值)就发射
-    //   c1_val 即 ch[4]，是 DT7 左上角的拨轮(旋钮)，解析后中位为 0，转离中位越远值越大。
+    //   ch[4]，是 DT7 左上角的拨轮(旋钮)，解析后中位为 0，转离中位越远值越大。
     //   阈值 500 可调：转到底没反应就改小(比如 300)，容易误触发就改大(比如 650)。
-		
-    uint8_t dt7_fire = (c1_val > 500) || (c1_val < -500);
-    bbb=vision_trigger;
-    // 静态变量用于记录按键的历史状态和按下时刻
-    static uint8_t was_trigger_active = 0;
-    static uint32_t press_start_time = 0;
-    timedd = press_start_time ;
-    // 判定是否为“刚按下的瞬间”（上升沿）
-    uint8_t trigger_just_pressed = is_trigger_active && !was_trigger_active;
-    if (trigger_just_pressed) {
-        press_start_time = HAL_GetTick(); // 记录按下的毫秒时间戳
-    }
-//    // 触发条件 1：刚按下的瞬间，无延迟立刻发一发（兼顾单发和连发的第一发）
-//    if (trigger_just_pressed) {
-//        should_shoot = 1;
-//    }
-//    // 触发条件 2：按住时间超过 100ms，判定为长按连发，持续置位
-//  else if (is_trigger_active && (HAL_GetTick() - press_start_time > 100)) {
-//        should_shoot = 1;
-//    } 
+    uint8_t dt7_fire = (remote_ctrl.rc.ch[4] > 500) || (remote_ctrl.rc.ch[4] < -500);
+
+    uint8_t vision_trigger = 0;
     // 3. 计算触发信号 vision_trigger（分「自瞄」和「手动」两种情况）
-    //    自瞄时（按住鼠标右键，或 RC.Trigger 拨到自瞄档 ==2）：
+    //    自瞄时（按住鼠标右键，或 RC.Switch 拨到自瞄档 ==2）：
     //        必须视觉确认对准了( Vision_Data.shoot_flag == 1 )才允许开火，
     //        即「右键按住 且 视觉说可以打」才打；另外鼠标左键随时可手动补一发。
-    //    手动时�  ��没进自瞄）：
+    //    手动时没进自瞄）：
     //        鼠标左键 或 UI 扳机键 直接触发。
-	if(REF_mouse_right==1||VT13_Info.RC.Trigger==2){      
-        vision_trigger=((Vision_Data.shoot_flag == 1 && REF_mouse_right==1)||(ui_shoot_mode == 1 && Vision_Data.shoot_flag == 1)||(REF_mouse_left==1)||dt7_fire);
-	}
-	else{
-        vision_trigger=REF_mouse_left == 1||ui_shoot_mode == 1||dt7_fire;
-    }
+		if(REF_mouse_right==1||VT13_Info.RC.Switch==2){      //进入vision自瞄模式    //if(REF_mouse_right==1||VT13_Info.RC.Trigger==2) 原来写的啥啊...应该要写switch=2吧 在gimbal_mode_set里有
+					vision_trigger=((Vision_Data.shoot_flag == 1 && REF_mouse_right==1)||(ui_shoot_mode == 1 && Vision_Data.shoot_flag == 1)||(REF_mouse_left==1)||dt7_fire);
+		}
+		else{    //没进入自瞄模式
+					vision_trigger=REF_mouse_left == 1||ui_shoot_mode == 1||dt7_fire;
+				}
 	
-	uint8_t should_shoot = 0;
-	if (vision_trigger) {
-    should_shoot = 1;
-    }
     // 最终执行拨弹
-    if (should_shoot && heat_permit) {
+    if (vision_trigger && heat_permit) {
         // 必须处于 SHOOT_READY 状态（意味着上一发已经拨完）且未卡弹
         if (shoot->shoot_mode == SHOOT_READY && !jammed_flag) 
         {
-            a++;
 					shoot->shoot_mode = SHOOT_NORMAL;  //射击状态改为shoot_normal
-            last_trigger_time = HAL_GetTick();
-			local_heat += HEAT_17MM;  //加热量
+					local_heat += HEAT_17MM;  //加热量
         }
     }
-    
-    // 更新历史状态，供下一次循环比对
-    was_trigger_active = is_trigger_active;
-    
-    s1_val_last = s1_val;
-    c1_val_last = c1_val;
 }
-int fri1=0;
-int fri2=0;
+
 static void Shoot_Speed_Set(Shoot_t* shoot)
 {
     switch (shoot->shoot_mode) {
@@ -379,8 +332,7 @@ static void Shoot_Speed_Set(Shoot_t* shoot)
         case SHOOT_INVERSION:
 						shoot->fri_motor_set[FR1].speed_rpm_set = -shoot->fri_speed;  //前面在Shoot_Mode_Update把fri_speed设为6200了 看宏定义
             shoot->fri_motor_set[FR2].speed_rpm_set = shoot->fri_speed;
-				fri1=shoot->fri_motor_fdb[FR1].Data.Velocity;
-				fri2=-shoot->fri_motor_fdb[FR2].Data.Velocity;
+
             break;
         case SHOOT_STOP:
         default:
@@ -439,11 +391,7 @@ static void Shoot_Position_Set(Shoot_t* shoot)
 
     case SHOOT_NORMAL:
         if (shoot_trigger_flag) {
-            // 这里加的是「M2006 输出轴」的角度，不是拨盘角度。
-            // 乘 2 = 「电机输出轴→拨盘」的 2:1 减速比(被直接写死成魔法数字 2)，
-            // 所以输出轴转 90°(2×45°) = 拨盘转 45° = 拨一发(拨盘 45°/槽)。
-            target_continuous_angle += 2*SHOOT_ANGLE_PER_BULLET;
-            
+            target_continuous_angle += SHOOT_ANGLE_PER_BULLET;
             shoot_trigger_flag = 0;
             bullet_ready_flag = 0;
             position_control_enabled = 1;
@@ -451,7 +399,7 @@ static void Shoot_Position_Set(Shoot_t* shoot)
         sht_ctrl_mode = SHT_CTRL_HYBRID;
         shoot->shoot_motor.continuous_angle_set = target_continuous_angle;
 
-        angle_error = Get_Angle_Error(target_continuous_angle, current_continuous_angle);
+        angle_error = target_continuous_angle - current_continuous_angle;
         if (position_control_enabled && fabs(angle_error) < ANGLE_ERROR_THRESHOLD) {
             bullet_ready_flag = 1;
             shoot->shoot_mode = SHOOT_READY;
@@ -474,24 +422,24 @@ static void Shoot_Position_Set(Shoot_t* shoot)
         break;
     }
 }
-float last_aaaaaa=0;
-float aaaaaa=0;
+
+
 static void Shoot_PID_Calculate(Shoot_t* shoot)
 {
     // 双摩擦轮速度环PID计算 + 前馈补偿
-	float pid_out[2]={0};
-	float ff_out[2]={0};
-    for (int i = 0; i < FRICTION_MOTOR_COUNT; i++) {
-        pid_out[i] = PID_Calculate(
+				float pid_out[2]={0};
+				float ff_out[2]={0};
+				for (int i = 0; i < FRICTION_MOTOR_COUNT; i++) {
+					pid_out[i] = PID_Calculate(
                 &fri_motor_pid[i],
                 Int16ToFloat(shoot->fri_motor_set[i].speed_rpm_set),
                 Int16ToFloat(shoot->fri_motor_fdb[i].Data.Velocity)
         );
-			//加速度补偿
-		ff_out[i]=fri_accel[i] * FRI_ACCEL_FF_K; 
+				//加速度补偿
+				ff_out[i]=fri_accel[i] * FRI_ACCEL_FF_K; 
 		
         if(shoot->fri_motor_set[i].speed_rpm_set == 0) ff_out[i]= 0; 
-		
+		  
         shoot->fri_motor_set[i].current_set = pid_out[i] - ff_out[i];
 	}
   
@@ -510,7 +458,7 @@ static void Shoot_PID_Calculate(Shoot_t* shoot)
     case SHT_CTRL_POSITION:
     case SHT_CTRL_HYBRID:
         {
-            float angle_err_abs = fabs(Get_Angle_Error(shoot->shoot_motor.continuous_angle_set, current_continuous_angle));
+            float angle_err_abs = fabs(shoot->shoot_motor.continuous_angle_set - current_continuous_angle);
 			int allow_bullet_num = (shoot->shooter_barrel_heat_limit - local_heat) / HEAT_17MM;  //还能打几发
 			if (allow_bullet_num < 4.5) {
                 shoot->shoot_motor.continuous_angle_set = current_continuous_angle;  //把当前角度赋给目标角度 防止超热量
@@ -521,9 +469,7 @@ static void Shoot_PID_Calculate(Shoot_t* shoot)
                                    current_continuous_angle
                                );
 			
-            aaaaaa=shoot->sht_motor_fdb.Data.Velocity;
-			if(aaaaaa>last_aaaaaa)			last_aaaaaa=aaaaaa;
-		
+
             float dynamic_max_rpm = SHOOT_FEED_MAX_RPM;  // [改动1] 原为 SPEED_CTRL_MAX_RPM(18000)
 
             if (pos_output > dynamic_max_rpm) pos_output = dynamic_max_rpm;
@@ -532,7 +478,7 @@ static void Shoot_PID_Calculate(Shoot_t* shoot)
             if (angle_err_abs < 5.0f)                         //这个括号内的内容在误差角度大于5°则不生效
             {
                 sht_motor_core_pid.Integral = 0.0f; 
-                sht_motor_core_pid.Iout = 0.0f;
+                sht_motor_core_pid.Iout = 0.0f;  
                 
                 if (pos_output > 800.0f) pos_output = 800.0f;
                 if (pos_output < -800.0f) pos_output = -800.0f;
@@ -564,20 +510,9 @@ static void Shoot_Init(void)
 {
     shoot.shoot_mode = SHOOT_STOP;
     shoot.fri_speed = FRICTION_MOTOR_SPEED_SET;
-    shoot.shoot_motor.number = 0;
-    shoot.shoot_motor.shoot_angle_fdb = 0.0f;
-    shoot.shoot_motor.shoot_angle_fdb_last = 0.0f;
-    shoot.shoot_motor.shoot_angle_set = 0.0f;
-    shoot.shoot_motor.shoot_ecd_fdb_last = 0.0f;
-    shoot.shoot_motor.shoot_ecd_fdb_error = 0.0f;
-    shoot.shoot_relative_fdb = 0.0f;
-    shoot.shoot_relative_set = 0.0f;
+	
     shoot.shoot_motor.continuous_angle_fdb = 0.0f;
     shoot.shoot_motor.continuous_angle_set = 0.0f;
-
-    s1_val_last = 0;
-    c1_val_last = 0;
-    s2_val_last = 0;
 
     sht_ctrl_mode = SHT_CTRL_HYBRID;
     target_continuous_angle = 0.0f;
@@ -612,22 +547,6 @@ static void Shoot_Init(void)
     sht_motor_core_pid.Param.IntSeparationErr = 800.0f; 
 }
 
-static float Normalize_Angle(float angle) {
-    while (angle >= 360.0f) angle -= 360.0f;
-    while (angle < 0.0f) angle += 360.0f;
-    if (angle > 359.0f) angle = 0.0f;
-    return angle;
-}
-
-static float Normalize_Angle_Error(float error) {
-    while (error > 180.0f) error -= 360.0f;
-    while (error < -180.0f) error += 360.0f;
-    return error;
-}
-
-static float Get_Angle_Error(float target, float current) {
-    return target - current;
-}
 
 /**
  * @brief 解析裁判系统发来的 0x23 帧（发射/热量数据）
@@ -640,7 +559,7 @@ void Shoot_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, Shoot_t *ShootData
     ShootData->initial_speed = (float)speed_raw / 100.0f; 
     ShootData->shooter_barrel_heat = (Rx_Buf[2] << 8) | Rx_Buf[3];
 	
-    //ShootData->shooter_barrel_heat_limit = (Rx_Buf[4] << 8) | Rx_Buf[5];
-   	ShootData->shooter_barrel_heat_limit = 60 ;  //这个是裁判系统给我发的 但是没人发 目前是0 我设为60 不然不允许发射 
+    ShootData->shooter_barrel_heat_limit = (Rx_Buf[4] << 8) | Rx_Buf[5];
+   	//ShootData->shooter_barrel_heat_limit = 60 ;  //这个是裁判系统给我发的 但是没人发 目前是0 我设为60 不然不允许发射 
     ShootData->shooter_barrel_cooling_value = (Rx_Buf[6] << 8) | Rx_Buf[7];
 }

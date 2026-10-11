@@ -212,7 +212,7 @@ extern float Abs(float num);
 extern float PreventFullCircleConstrain(float set, float fdb);
 extern float filter_FR1(float temp,float alpha);
 extern float filter_FR2(float temp,float alpha);
-extern float filter_FR3(float temp,float alpha);
+
 extern float filter_sht(float temp,float alpha);
 extern void ConstrainLoop(float* output, float input, float min, float max);
 extern void TransmitFriMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2);

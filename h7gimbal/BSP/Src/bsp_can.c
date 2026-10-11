@@ -44,7 +44,7 @@
 
 uint32_t GetMotorFR1Fdb(DJI_Motor_Info_Typedef * motor);
 uint32_t GetMotorFR2Fdb(DJI_Motor_Info_Typedef * motor);
-uint32_t GetMotorFR3Fdb(DJI_Motor_Info_Typedef * motor);
+
 uint32_t GetPitchMotorFdb(DM_Motor_Info_Typedef* motor);
 uint32_t GetYawMotorFdb(DM_Motor_Info_Typedef* motor);
 uint32_t GetMotorPitchRelativeAngle(float* angle);
@@ -278,11 +278,7 @@ uint32_t GetMotorFR2Fdb(DJI_Motor_Info_Typedef * motor)
     *motor = FR_Motor[1];
     return FR_Motor[1].Motor_time;
 }
-uint32_t GetMotorFR3Fdb(DJI_Motor_Info_Typedef * motor)
-{
-    *motor = FR_Motor[2];
-    return FR_Motor[2].Motor_time;
-}
+
 
 uint32_t GetPitchMotorFdb(DM_Motor_Info_Typedef* motor)
 {

@@ -146,7 +146,6 @@ void Control_Task(void const *pvParameters)
     while (1)
     {
         GetDataFdb(&gimbal);            // 2. 读反馈：电机/IMU/陀螺仪/视觉数据
-
         GimbalModeSet(&gimbal);         // 3. 根据遥控器设定云台工作模式
         ChassisModeSet(&gimbal);        // 4. 根据遥控器设定底盘跟随模式
         GimbalModeChangeControlTransit(&gimbal);  // 5. 模式切换时的角度平滑过渡
@@ -357,12 +356,7 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
     gimbal_mode_set->motor_last_mode[PITCH] = gimbal_mode_set->motor_mode[PITCH];
     gimbal_mode_set->motor_last_mode[YAW] = gimbal_mode_set->motor_mode[YAW];
 		
-	    //都没用到这些 作用在哪？
-    static int16_t ch0_val = 0;
-    static int16_t ch0_last_val = 0;
-    static int16_t ch1_val = 0;
-    static int16_t ch1_last_val = 0;
-	
+
     static  uint16_t REF_key_robot_mode = 0;
     static  uint16_t REF_key_robot_mode_last = 0;
     static int8_t REF_mouse_right = 0;
@@ -370,15 +364,7 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
     static int8_t REF_mouse_middle = 0;
     static int8_t REF_mouse_middle_last = 0;
 		
-    static int8_t power_save = 0;
-    static int8_t power_save_last = 0;
-		  
-    /* —— 缓存两套遥控的输入(供边沿检测用)，注意 DT7 和 图传VT13 是两套不同的遥控 —— */
-    ch0_last_val = ch0_val;
-    ch0_val = remote_ctrl.rc.ch[0];            // 【DT7】右摇杆左右 → 云台yaw
-    ch1_last_val = ch1_val;
-    ch1_val = remote_ctrl.rc.ch[1];            // 【DT7】右摇杆上下 → 云台pitch
-		
+
     REF_key_robot_mode_last = REF_key_robot_mode ;
     REF_key_robot_mode = VT13_Info.Key.V;      // 【图传VT13】键盘
     REF_mouse_right_last = REF_mouse_right;

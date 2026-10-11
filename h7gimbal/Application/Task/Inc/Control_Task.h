@@ -381,7 +381,7 @@ void RobotReset(Gimbal_t* reset);
 extern void gimbal_task(void const *pvParameters);
 extern uint32_t GetMotorFR1Fdb(DJI_Motor_Info_Typedef * motor);
 extern uint32_t GetMotorFR2Fdb(DJI_Motor_Info_Typedef * motor);
-extern uint32_t GetMotorFR3Fdb(DJI_Motor_Info_Typedef * motor);
+
 extern uint32_t GetPitchMotorFdb(DM_Motor_Info_Typedef* motor);
 extern uint32_t GetYawMotorFdb(DM_Motor_Info_Typedef* motor);
 extern uint32_t GetMotorPitchRelativeAngle(float* angle);

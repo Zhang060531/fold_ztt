@@ -26,7 +26,6 @@
 #define CHASSIS_SHOOT_ID 0x303
 #define FR1 0	//friction motor 1 index
 #define FR2 1	//friction motor 2 index
-#define FR3 2	//friction motor 3 index
 
 #define REDUCTION_RATIO 51.00f //拨弹盘电机减速比
 
@@ -60,32 +59,23 @@ typedef enum{
 
 typedef struct
 {
-	int16_t number;              //电机每转一圈，number+1，加到减速比，归零
-	float shoot_angle_fdb;       //拨弹盘角度反馈值（0~360）
-	float shoot_angle_fdb_last;
-	float shoot_angle_set;       //拨弹盘角度设定值
-	float shoot_ecd_fdb_last;    //记录上一次电机角度反馈值
-	float shoot_ecd_fdb_error;   //电机角度反馈值误差
-	float shoot_relative_fdb;
+
 	float continuous_angle_set;
 	float continuous_angle_fdb;
 }Shoot_Motor_t;
 
 typedef struct
 {
-	DJI_Motor_Info_Typedef fri_motor_fdb[3];	//friction motor feedback data
-	DJI_Motor_Info_Typedef sht_motor_fdb;	 //shoot motor feedback data
-	Shoot_Motor_t shoot_motor;  
+	DJI_Motor_Info_Typedef fri_motor_fdb[2];	//摩擦轮电机反馈
+	DJI_Motor_Info_Typedef sht_motor_fdb;	 //拨盘电机反馈
 	
-	DJI_Motor_Contorl_Info_Typedef fri_motor_set[3];	//friction motor set data
-	DJI_Motor_Contorl_Info_Typedef sht_motor_set;	//shoot motor set data
+	DJI_Motor_Contorl_Info_Typedef fri_motor_set[2];	//摩擦轮电机设置
+	DJI_Motor_Contorl_Info_Typedef sht_motor_set;	//拨盘电机设置
 
 	Shoot_Mode_e shoot_mode;
+	Shoot_Motor_t shoot_motor; 
 	
-	float shoot_relative_fdb;
-	float shoot_relative_set;	
-	
-	int16_t fri_speed;
+	int16_t fri_speed;   //其实不太理解这个变量有点多此一举
 	int16_t shooter_barrel_heat;
 	int16_t shooter_barrel_heat_limit;
 	int16_t shooter_barrel_cooling_value;
@@ -100,7 +90,7 @@ extern xQueueHandle CAN1_shoot_Queue;
 void shoot_task(void const *pvParameters);
 extern uint32_t GetMotorFR1Fdb(DJI_Motor_Info_Typedef * motor);
 extern uint32_t GetMotorFR2Fdb(DJI_Motor_Info_Typedef * motor);
-extern uint32_t GetMotorFR3Fdb(DJI_Motor_Info_Typedef * motor);
+
 extern uint32_t GetShootMotorFdb(DJI_Motor_Info_Typedef* motor);
 extern void Shoot_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, Shoot_t *ShootData);
 

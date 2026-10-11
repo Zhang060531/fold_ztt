@@ -270,7 +270,7 @@ static BMI088_Status_e BMI088_Gyro_Init(void)
     return BMI088_NO_ERROR;
 }
 
-#define IMU_Calibration_ENABLE  1U
+#define IMU_Calibration_ENABLE  0U
 
 /**
  * @brief  标定陀螺仪零偏（Offset）
@@ -320,9 +320,9 @@ static void BMI088_Offset_Update(BMI088_Info_Typedef *BMI088_Info)
 	
 #else /* DISABLE the BMI088 Calibration */
 	/* store the previous offsets */
-  BMI088_Info->Offsets_Gyro_X = -0.00125359884,
-  BMI088_Info->Offsets_Gyro_Y = -0.00382664148;
-  BMI088_Info->Offsets_Gyro_Z = 0.00183799898;
+  BMI088_Info->Offsets_Gyro_X = -0.000936792349,
+  BMI088_Info->Offsets_Gyro_Y = -0.00320514571;
+  BMI088_Info->Offsets_Gyro_Z =  0.00190574967;
 #endif
 
   /* set the offset init flag */
