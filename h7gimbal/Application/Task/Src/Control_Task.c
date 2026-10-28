@@ -75,10 +75,6 @@ extern Image_Transmission_Info_TypeDef Image_Transmission_Info;  // 图传数据
 extern VT13_Info_TypeDef VT13_Info;    // VT13 图传遥控器数据（键鼠）
 extern Remote_Info_Typedef remote_ctrl;  // 大疆 DR16 遥控器数据（摇杆拨杆）
 extern Shoot_t shoot;                  // 发射机构数据（摩擦轮/拨弹轮）
-
-
-
-
 /*********************************************************/
 /* ============ 遥控器 → 车 的控制链=========== */
 /*********************************************************/
