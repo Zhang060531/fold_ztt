@@ -16,7 +16,7 @@
  *  - SHOOT_STOP      停止：摩擦轮停转
  *  - SHOOT_READY     就绪：摩擦轮转起来，等开火指令
  *  - SHOOT_NORMAL    发射中：拨弹轮转一发子弹的角度
- *  - SHOOT_INVERSION 反转：拨弹轮反转(清卡弹用)
+ *  - SHOOT_INVERSION 预留：堵转反转(清卡弹)，暂未使用
  *
  * ===== 调车关注 =====
  *  - FRICTION_MOTOR_PID_* 摩擦轮速度环 PID；SHOOT_MOTOR_SHELL/CORE 是拨弹轮串级 PID
@@ -54,7 +54,7 @@ typedef enum{
 	SHOOT_STOP,
 	SHOOT_READY,
 	SHOOT_NORMAL,
-	SHOOT_INVERSION
+	SHOOT_INVERSION  // 预留：堵转反转，暂未使用
 }Shoot_Mode_e;
 
 typedef struct
@@ -75,7 +75,6 @@ typedef struct
 	Shoot_Mode_e shoot_mode;
 	Shoot_Motor_t shoot_motor; 
 	
-	int16_t fri_speed;   //其实不太理解这个变量有点多此一举
 	int16_t shooter_barrel_heat;
 	int16_t shooter_barrel_heat_limit;
 	int16_t shooter_barrel_cooling_value;

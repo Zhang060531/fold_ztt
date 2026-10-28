@@ -51,11 +51,11 @@ void Test_Task(void const * argument)
 		 * gimbal.angle.relative_fdb[YAW] 相对模式的角度反馈(°)
 		 */
 		
-		  USART_Vofa_Justfloat_Transmit4(
-			gimbal.angle.absolute_set[YAW],   // CH1: yaw 角度设定(外环输入)
-			gimbal.angle.absolute_fdb[YAW],   // CH2: yaw 角度反馈(外环反馈)
-			gimbal.gyro.set[YAW],             // CH3: yaw 目标角速度(内环设定=外环输出)
-			gimbal.gyro.fdb[YAW]);              // CH4: yaw 角速度反馈(内环反馈)
+//		  USART_Vofa_Justfloat_Transmit4(
+//			gimbal.angle.absolute_set[YAW],   // CH1: yaw 角度设定(外环输入)
+//			gimbal.angle.absolute_fdb[YAW],   // CH2: yaw 角度反馈(外环反馈)
+//			gimbal.gyro.set[YAW],             // CH3: yaw 目标角速度(内环设定=外环输出)
+//			gimbal.gyro.fdb[YAW]);              // CH4: yaw 角速度反馈(内环反馈)
 
 			
 //		  USART_Vofa_Justfloat_Transmit4(
@@ -80,6 +80,17 @@ void Test_Task(void const * argument)
 //			INS_Info.Angle[2],
 //			INS_Info.Yaw_Angle
 //		);
+
+		/* ===== 用 VoFa 调 GM6020 双环 PID 的 4 个通道 =====
+ * CH1: 目标角度(°)   CH2: 实际角度(°)
+ * CH3: 目标转速(rpm) CH4: 实际转速(rpm)
+ */
+		USART_Vofa_Justfloat_Transmit4(
+				gm6020_target_angle,               // CH1: 目标角度
+				GM6020_Motor.Data.Angle,           // CH2: 实际角度
+				gm6020_shell_pid.Output,           // CH3: 目标转速(=外环输出)
+				(float)GM6020_Motor.Data.Velocity  // CH4: 实际转速
+		);
 		osDelay(1);   /* 发送周期 1ms(1kHz)；若 VoFa 曲线抖动可改成 osDelay(2) */
 	}
 }

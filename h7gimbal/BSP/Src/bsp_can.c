@@ -198,7 +198,8 @@ static void FDCAN1_RxFifo0RxHandler(uint32_t *Identifier, uint8_t Data[8])
 	
     DJI_Motor_Info_Update(Identifier, Data, &FR_Motor[0]);
     DJI_Motor_Info_Update(Identifier, Data, &FR_Motor[1]);
-    DJI_Motor_Info_Update(Identifier, Data, &FR_Motor[2]);
+		
+		DJI_Motor_Info_Update(Identifier, Data, &GM6020_Motor); 
 }
 
 /**
@@ -224,9 +225,10 @@ static void FDCAN2_RxFifo1RxHandler(uint32_t *Identifier, uint8_t Data[8])
 {
     DM_Motor_Info_Update(Identifier, Data, &DM_4310_Motor[0]);
     DM_Motor_Info_Update(Identifier, Data, &DM_4310_Motor[1]);
-	  DJI_Motor_Info_Update(Identifier, Data, &Shoot_Motor);
+	  
+		DJI_Motor_Info_Update(Identifier, Data, &Shoot_Motor);
+	
 	  Shoot_Info_Update(Identifier, Data, &shoot);
-
 
 }
 

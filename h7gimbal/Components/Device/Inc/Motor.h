@@ -20,7 +20,7 @@
  * 和函数。云台上总共用到两类、共 6 个电机：
  *
  *  1. DJI 大疆电机（走大疆电调 CAN 协议，发电流、收转速/角度/温度）：
- *     - 摩擦轮电机 M3508 ×3  → 实例 FR_Motor[3]，靠摩擦轮甩出子弹
+ *     - 摩擦轮电机 M3508 ×2  → 实例 FR_Motor[2]，靠摩擦轮甩出子弹
  *     - 拨弹轮电机 M2006 ×1  → 实例 Shoot_Motor，把子弹拨进摩擦轮
  *
  *  2. 达妙(Damiao) DM4310 电机 ×2（走 MIT 模式 CAN 协议）：
@@ -49,7 +49,6 @@
 // 三个摩擦轮电机的下标，方便用 FR_Motor[M1] 这种写法访问
 #define M1 0   // 摩擦轮电机 1
 #define M2 1   // 摩擦轮电机 2
-#define M3 2   // 摩擦轮电机 3
 
 
 
@@ -195,14 +194,19 @@ typedef struct
 
 /* Externs ------------------------------------------------------------------*/
 // 全局电机实例（定义在 Motor.c）：
-//   FR_Motor[3]    = 3 个摩擦轮 M3508
+//   FR_Motor[2]    = 2 个摩擦轮 M3508
 //   Shoot_Motor    = 1 个拨弹轮 M2006
 //   DM_4310_Motor[2] = 2 个达妙 DM4310（[0]=pitch 俯仰, [1]=yaw 偏航）
-extern DJI_Motor_Info_Typedef Shoot_Motor,FR_Motor[3];
+extern DJI_Motor_Info_Typedef Shoot_Motor,FR_Motor[2];
+
+extern DJI_Motor_Info_Typedef GM6020_Motor;
+
 extern DM_Motor_Info_Typedef DM_4310_Motor[2];
+
 /* Function Prototypes */
 extern void DJI_Motor_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf,DJI_Motor_Info_Typedef *DJI_Motor);
 extern void DM_Motor_Info_Update(uint32_t *Identifier,uint8_t *Rx_Buf,DM_Motor_Info_Typedef *DM_Motor);
+
 extern void TransmitShootMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t shoot_current);
 extern void DM_Motor_Command(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,DM_Motor_Info_Typedef *DM_Motor,uint8_t CMD);
 extern void DM_Motor_CAN_TxMessage(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,DM_Motor_Info_Typedef *DM_Motor,float Postion, float Velocity, float KP, float KD, float Torque);
@@ -216,7 +220,7 @@ extern float filter_FR2(float temp,float alpha);
 extern float filter_sht(float temp,float alpha);
 extern void ConstrainLoop(float* output, float input, float min, float max);
 extern void TransmitFriMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2);
-
+extern void TransmitGM6020Voltage(FDCAN_TxFrame_TypeDef*FDCAN_TxFrame , int16_t voltage);
 
 
 #endif //DEVICE_MOTOR_H

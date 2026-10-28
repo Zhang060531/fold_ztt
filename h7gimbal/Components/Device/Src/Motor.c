@@ -49,7 +49,7 @@
 
 // 3 个摩擦轮电机 M3508：共用下发帧 0x200（一条帧带两个电机），
 // 各自回传帧 0x201 / 0x202 / 0x203
-DJI_Motor_Info_Typedef FR_Motor[3] = {
+DJI_Motor_Info_Typedef FR_Motor[2] = {
     [0] = {
         .Type = DJI_M3508,
         .FDCANFrame = {
@@ -64,13 +64,6 @@ DJI_Motor_Info_Typedef FR_Motor[3] = {
             .RxIdentifier = 0x202,   // 回传：摩擦轮 2
         }
     },
-    [2] = {
-        .Type = DJI_M3508,
-        .FDCANFrame = {
-            .TxIdentifier = 0x200,   // 下发：电流指令（摩擦轮 3 单独用）
-            .RxIdentifier = 0x203,   // 回传：摩擦轮 3
-        }
-    },
 };
 
 // 拨弹轮电机 M2006：下发帧 0x1FF，回传帧 0x25
@@ -82,6 +75,15 @@ DJI_Motor_Info_Typedef Shoot_Motor = {
         }
 };
 
+// GM6020 关节电机 大pitch
+// GM6020 反馈帧 ID = 0x204 + 电机ID
+DJI_Motor_Info_Typedef GM6020_Motor = {
+    .Type = DJI_GM6020,
+    .FDCANFrame = {
+        .TxIdentifier = 0x2ff,   // 下发：电压指令
+        .RxIdentifier = 0x209,   // 回传：编码器/转速/电流/温度
+    }
+};
 // 达妙 DM4310 关节电机 ×2（pitch 俯仰 / yaw 偏航）
 // 注意：达妙电机用「1 对 1」ID，Tx=控制帧, Rx=反馈帧（Rx=Tx+0x10）
 DM_Motor_Info_Typedef DM_4310_Motor[2]= {
@@ -317,7 +319,10 @@ void DJI_Motor_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf,DJI_Motor_Info_
             // 减速比传入 36.0f，编码器线数传入 8192.0f
             DJI_Motor_Encoder_To_Continuous_Angle(&DJI_Motor->Data, 36.0f, 8192.0f);
             break;
-            
+        case DJI_GM6020:
+					  //无减速箱 减速比为1
+				    DJI_Motor->Data.Angle = DJI_Motor_Encoder_To_Angle(&DJI_Motor->Data,1.f,8192);
+						break;
         default:break;
     }
 }
@@ -342,6 +347,24 @@ void TransmitShootMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t shoo
     FDCAN_TxFrame->Data[1] = (uint8_t)shoot_current;
     USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);
 }
+
+// 下发 GM6020 电压：GM6020 是「电压控制」电机
+// 电压范围 -30000~30000；帧 ID 用实例里配好的 TxIdentifier（0x2FF，对应电机ID=5）。
+// 0x2FF 一条帧带 4 个电机(ID5~8)，每个占 2 字节；本工程只有 ID=5，用 Data[0]/Data[1]。
+void TransmitGM6020Voltage(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t voltage)
+{
+    FDCAN_TxFrame->Header.Identifier = GM6020_Motor.FDCANFrame.TxIdentifier;
+    FDCAN_TxFrame->Data[0] = (uint8_t)(voltage >> 8);   // 电压高 8 位
+    FDCAN_TxFrame->Data[1] = (uint8_t)voltage;          // 电压低 8 位
+    FDCAN_TxFrame->Data[2] = 0;   // 其余 6 字节清零：本工程没有 ID6~8，别误发垃圾电压
+    FDCAN_TxFrame->Data[3] = 0;
+    FDCAN_TxFrame->Data[4] = 0;
+    FDCAN_TxFrame->Data[5] = 0;
+    FDCAN_TxFrame->Data[6] = 0;
+    FDCAN_TxFrame->Data[7] = 0;
+    USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);
+}
+//
 // 给达妙电机发控制命令（使能/失能/设零点/清错误）
 // 命令放在 MIT 帧最后一个字节 Data[7]，前 7 字节全填 0xFF（无效值）
 void DM_Motor_Command(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,DM_Motor_Info_Typedef *DM_Motor,uint8_t CMD)

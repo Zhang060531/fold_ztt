@@ -270,7 +270,7 @@ static BMI088_Status_e BMI088_Gyro_Init(void)
     return BMI088_NO_ERROR;
 }
 
-#define IMU_Calibration_ENABLE  0U
+#define IMU_Calibration_ENABLE  1U
 
 /**
  * @brief  标定陀螺仪零偏（Offset）
@@ -403,6 +403,24 @@ void BMI088_Info_Update(BMI088_Info_Typedef *BMI088_Info)
 		BMI088_Info->Gyro[0] =   BMI088_GYRO_SEN * BMI088_Info->MPU_Info.Gyro_X - BMI088_Info->Offsets_Gyro_X;
 	  BMI088_Info->Gyro[1] =   BMI088_GYRO_SEN * BMI088_Info->MPU_Info.Gyro_Y - BMI088_Info->Offsets_Gyro_Y;
 	  BMI088_Info->Gyro[2] =   BMI088_GYRO_SEN * BMI088_Info->MPU_Info.Gyro_Z - BMI088_Info->Offsets_Gyro_Z;
+
+    /* ========== 轴重映射：芯片坐标系 -> 云台车身坐标系（板子绕竖直 Z 轴转 90°） ==========
+     * 板子始终水平、绕竖直轴转 90° 后，竖直轴(chip Z)没变，只有 pitch/roll 互换并取反。
+     *   body[0] = pitch 轴, body[1] = roll 轴, body[2] = yaw 轴(竖直轴, 不变)
+     * 陀螺仪和加速度计必须用同一套映射(同样交换 + 同样取反)，否则 EKF 里陀螺积分与重力修正会打架。
+     * 注意：若 pitch 正方向反了，把下面 Gyro/Accel 的 [0]、[1] 两行符号同时取反即可。 */
+    {
+        float g[3] = { BMI088_Info->Gyro[0],  BMI088_Info->Gyro[1],  BMI088_Info->Gyro[2] };
+        float a[3] = { BMI088_Info->Accel[0], BMI088_Info->Accel[1], BMI088_Info->Accel[2] };
+
+        BMI088_Info->Gyro[0]  = -g[1];   /* pitch = -chipY */
+        BMI088_Info->Gyro[1]  =  g[0];   /* roll  = +chipX */
+        BMI088_Info->Gyro[2]  =  g[2];   /* yaw   = chipZ(不变) */
+
+        BMI088_Info->Accel[0] = -a[1];
+        BMI088_Info->Accel[1] =  a[0];
+        BMI088_Info->Accel[2] =  a[2];
+    }
 }
 
 

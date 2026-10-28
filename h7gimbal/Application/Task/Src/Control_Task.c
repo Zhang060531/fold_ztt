@@ -59,7 +59,15 @@ PID_Info_TypeDef gimbal_core_pid[2];   // 内环「角速度环」PID，[0]=pitc
 PID_Info_TypeDef vision_core_pid[2];   // 视觉自瞄的「角速度环」PID
 int vision_flag = 0;            // 视觉模式标志（1=开视觉）
 PID_Info_TypeDef follow_pid, follow_pid2;  // 底盘跟随云台时用的 PID（算底盘旋转量）
-float absolte_angle_zero[3] = {0};  // 记录上电时云台的绝对角度零点
+
+//GM6020 双环 PID：外环位置环 + 内环速度环 
+PID_Info_TypeDef gm6020_shell_pid;           // 外环 位置环（角度误差→目标转速rpm）
+PID_Info_TypeDef gm6020_core_pid;            // 内环 速度环（转速误差→电压）
+volatile float  gm6020_target_angle = 0.0f;  // 目标角度(°)，调试时在 Keil Watch 里改
+volatile uint8_t gm6020_enable = 0;          // 使能开关：0=关(电压恒0，安全)，1=开
+int16_t gm6020_voltage = 0;                  // 双环算出的电压，CAN_Task 里下发
+
+
 float key_scale_factor = 2.0;   // 键盘控制底盘/云台时的速度系数
 uint8_t switchflag = 0;
 bool head_flag = HEAD;          // 云台当前朝向：车头(HEAD) 还是 车尾(TAIL)
@@ -126,6 +134,9 @@ static void YawAngleRefSet(Gimbal_t* yaw_angle_set);
 static void ChassisSpeedSet(Gimbal_t* chassis_speed);
 static void PitchPidCalc(Gimbal_t* pitch_pid_calc);
 static void YawPidCalc(Gimbal_t* yaw_pid_calc);
+
+static void GM6020PidCalc(void);
+
 static void GimbalModeChangeControlTransit(Gimbal_t* gimbal_mode_change);
 static void addPitchAngle(Gimbal_t* pitch, float add);
 static void addYawAngle(Gimbal_t* yaw, float add);
@@ -146,15 +157,26 @@ void Control_Task(void const *pvParameters)
     while (1)
     {
         GetDataFdb(&gimbal);            // 2. 读反馈：电机/IMU/陀螺仪/视觉数据
+			
+			 //设定模式相关
         GimbalModeSet(&gimbal);         // 3. 根据遥控器设定云台工作模式
         ChassisModeSet(&gimbal);        // 4. 根据遥控器设定底盘跟随模式
         GimbalModeChangeControlTransit(&gimbal);  // 5. 模式切换时的角度平滑过渡
+			
+				//大pitch
+			  GM6020PidCalc();  							//GM6020双环pid算电压（角度-->电压）
+			  //小pitch
         PitchAngleRefSet(&gimbal);      // 6. 计算 pitch 俯仰目标角度
+				//yaw
         YawAngleRefSet(&gimbal);        // 7. 计算 yaw 偏航目标角度
+				//设定底盘
         ChassisSpeedSet(&gimbal);       // 8. 计算底盘速度指令（0x21 帧）
+			
         PitchPidCalc(&gimbal);          // 9. pitch 轴串级 PID 算力矩
         YawPidCalc(&gimbal);            // 10. yaw 轴串级 PID 算力矩
-        osDelay(1);                     // 延时 1ms，形成 1kHz 控制周期
+			
+	
+				osDelay(1);                     // 延时 1ms，形成 1kHz 控制周期
     }
 }
 
@@ -168,10 +190,10 @@ void Control_Task(void const *pvParameters)
  */
 static void GimbalInit(void)
 {
-    gimbal.robot_mode_set = INIT_MODE;   // 上电先进入初始化模式
+		gimbal.robot_mode_set = ZERO_FORCE_MODE;
     gimbal.super_power_mode = SUPER_POWER_CLOSE;
     gimbal.chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
-    gimbal.init_flag = 0;
+
 
     /* ===== 云台俯仰轴(pitch) 外环「角度环」PID 参数 ===== */
     gimbal_shell_pid[PITCH].Param.KP = PITCH_SHELL_PID_KP;
@@ -243,10 +265,25 @@ static void GimbalInit(void)
     follow_pid.Param.KP = FOLLOW_PID_KP;
     follow_pid.Param.KI = FOLLOW_PID_KI;
     follow_pid.Param.KD = FOLLOW_PID_KD;
-    follow_pid.Param.LimitIntegral = FOLLOW_PID_MAX_IOUT;   
-    follow_pid.Param.LimitOutput = FOLLOW_PID_MAX_OUT;  
-    follow_pid.Type = PID_POSITION; 
+    follow_pid.Param.LimitIntegral = FOLLOW_PID_MAX_IOUT;
+    follow_pid.Param.LimitOutput = FOLLOW_PID_MAX_OUT;
+    follow_pid.Type = PID_POSITION;
+		
+		/* ===== GM6020 双环 PID（位置环 + 速度环）参数 ===== */
+    gm6020_shell_pid.Param.KP = GM6020_SHELL_PID_KP;
+    gm6020_shell_pid.Param.KI = GM6020_SHELL_PID_KI;
+    gm6020_shell_pid.Param.KD = GM6020_SHELL_PID_KD;
+    gm6020_shell_pid.Param.LimitIntegral = GM6020_SHELL_PID_MAX_IOUT;
+    gm6020_shell_pid.Param.LimitOutput  = GM6020_SHELL_PID_MAX_OUT;
+    gm6020_shell_pid.Type = PID_POSITION;
 
+    gm6020_core_pid.Param.KP = GM6020_CORE_PID_KP;
+    gm6020_core_pid.Param.KI = GM6020_CORE_PID_KI;
+    gm6020_core_pid.Param.KD = GM6020_CORE_PID_KD;
+    gm6020_core_pid.Param.LimitIntegral = GM6020_CORE_PID_MAX_IOUT;
+    gm6020_core_pid.Param.LimitOutput  = GM6020_CORE_PID_MAX_OUT;
+    gm6020_core_pid.Type = PID_POSITION;
+		
     /* 初始化视觉速度估计低通滤波器 */
     LowPassFilter1p_Init(&vision_vel_lpf[YAW],   VISION_VEL_LPF_ALPHA);
     LowPassFilter1p_Init(&vision_vel_lpf[PITCH], VISION_VEL_LPF_ALPHA);
@@ -331,7 +368,7 @@ static void TimeErrorCalc(Gimbal_t* gimbal)
 }
 
 int Key_ctrl_flag = 0;
-int Key_ctrl_flag2 = 0;
+
 int Key_r_flag = 0;
 int8_t pause = 0;
 int8_t pause_last = 0;
@@ -522,13 +559,6 @@ static void GimbalModeChangeControlTransit(Gimbal_t* mode_change)
     }
 
 
-    if (mode_change->robot_last_mode == INIT_MODE && mode_change->robot_mode_set == ZERO_FORCE_MODE)
-    {
-        absolte_angle_zero[YAW] = mode_change->angle.absolute_fdb[YAW];
-        absolte_angle_zero[PITCH] = mode_change->angle.absolute_fdb[PITCH];
-    }
-
-
     if (mode_change->robot_last_mode == ZERO_FORCE_MODE && mode_change->robot_mode_set != ZERO_FORCE_MODE)
     {
         mode_change->angle.relative_set[PITCH] = mode_change->angle.relative_fdb[PITCH];
@@ -553,12 +583,7 @@ static void PitchAngleRefSet(Gimbal_t* angle_set)
         pitch_ref_vel = 0.0f;   //【新增】无力模式无指令，参考速度清零
         return;
     }
-    else if (angle_set->robot_mode_set == INIT_MODE)
-    {
-        add_angle = 0.0f;
-        addPitchAngle(angle_set, add_angle);
-        pitch_ref_vel = 0.0f;   //【新增】初始化模式参考速度清零
-    }
+
     else if (angle_set->robot_mode_set == NORMAL_MODE)
     {   //pitch同下 有一样的结论
         // 俯仰目标角增量 = 摇杆输入 之和：【DT7】ch[1](右摇杆上下) + 【DT7】mouse.y(鼠标Y)
@@ -592,13 +617,7 @@ static void YawAngleRefSet(Gimbal_t* angle_set)
         yaw_ref_vel = 0.0f;   //【新增】无力模式无指令，参考速度清零
         return;
     }
-    else if (angle_set->robot_mode_set == INIT_MODE)
-    {
-        add_angle = 0.0f;
-        addYawAngle(angle_set, add_angle);
-			
-        yaw_ref_vel = 0.0f;   //【新增】初始化模式参考速度清零
-    }
+
     else if (angle_set->robot_mode_set == NORMAL_MODE)
     {
 				//调试发现将 VT13_Info.RC.Channel[0]改个正负 左推摇杆 车（云台+底盘）右转
@@ -642,17 +661,12 @@ static void ChassisSpeedSet(Gimbal_t* chassis_speed)
     //  - 车尾模式：yaw 相对角贴近 ±180°(偏差 0.5° 内)就算对准
     static float set_chassis_head = 0.5, set_chassis_tail = 179.5;
     float angle_set = 0.0f;   // 本函数内未再使用，历史遗留(可删)
+	
     // x_temp/y_temp 必须是 static：ramp_speed 需要「上一次的值」来算平滑增量
     static float x_temp, y_temp;
+	
     // 无力模式 / 初始化模式：底盘静止，三轴速度清零后直接返回
     if (chassis_speed->robot_mode_set == ZERO_FORCE_MODE)
-    {
-        chassis_speed->chassis_set[CHASSIS_X] = 0;
-        chassis_speed->chassis_set[CHASSIS_Y] = 0;
-        chassis_speed->chassis_set[CHASSIS_Z] = 0;
-        return;
-    }
-    else if (chassis_speed->robot_mode_set == INIT_MODE)
     {
         chassis_speed->chassis_set[CHASSIS_X] = 0;
         chassis_speed->chassis_set[CHASSIS_Y] = 0;
@@ -816,10 +830,7 @@ static void PitchPidCalc(Gimbal_t* pitch_pid_calc)
     {
         pitch_pid_calc->motor_set[PITCH].Torque = 0;
     }
-    else if (pitch_pid_calc->robot_mode_set == INIT_MODE)
-    {
-        pidCalc(pitch_pid_calc, PITCH);
-    }
+
     else if (pitch_pid_calc->robot_mode_set == NORMAL_MODE)
     {
         pidCalc(pitch_pid_calc, PITCH);
@@ -841,10 +852,7 @@ static void YawPidCalc(Gimbal_t* yaw_pid_calc)
     {
         yaw_pid_calc->motor_set[YAW].Torque = 0;
     }
-    else if (yaw_pid_calc->robot_mode_set == INIT_MODE)
-    {
-        pidCalc(yaw_pid_calc, YAW);
-    }
+
     else if (yaw_pid_calc->robot_mode_set == NORMAL_MODE)
     {
         pidCalc(yaw_pid_calc, YAW);
@@ -1029,6 +1037,37 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
         }
     }
 }
+
+/**
+ * @brief GM6020 双环 PID（位置环 + 速度环），算出电压
+ * @note  外环 位置环：角度误差(°) → 目标转速(rpm)
+ *        内环 速度环：转速误差(rpm) → 电压
+ *        gm6020_enable=0 时电压恒 0（安全，不发力）。
+ */
+static void GM6020PidCalc(void)
+{
+    float angle_set;
+    float target_rpm;
+
+    if (gm6020_enable == 0)   // 没使能：电压归零，并清空 PID 状态，避免使能瞬间猛推
+    {
+        gm6020_voltage = 0;
+        PID_Calc_Clear(&gm6020_shell_pid);
+        PID_Calc_Clear(&gm6020_core_pid);
+        return;
+    }
+
+    // 防止目标角度和反馈角度跨 ±180° 绕大圈（走最短的近路）
+    angle_set = PreventFullCircleConstrain(gm6020_target_angle, GM6020_Motor.Data.Angle);
+
+    // 外环 位置环：角度误差 → 目标转速(rpm)
+    target_rpm = PID_Calculate(&gm6020_shell_pid, angle_set, GM6020_Motor.Data.Angle);
+
+    // 内环 速度环：转速误差 → 电压
+    gm6020_voltage = (int16_t)PID_Calculate(&gm6020_core_pid, target_rpm, (float)GM6020_Motor.Data.Velocity);
+}
+
+
 
 static inline int16_t float_to_int16(float f, int16_t scale)
 {

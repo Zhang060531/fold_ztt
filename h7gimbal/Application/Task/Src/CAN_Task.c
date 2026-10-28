@@ -119,7 +119,10 @@ void CAN_Task(void const * argument)
         TransmitGimbal_Info(&FDCAN2_TxFrame);    // 0x22 帧：云台状态                                           
         DM_Motor_CAN_TxMessage(&FDCAN2_TxFrame, &DM_4310_Motor[0], 0, 0, 0, 0, gimbal.motor_set[PITCH].Torque+front);   // pitch 力矩 + 重力补偿  原front
         DM_Motor_CAN_TxMessage(&FDCAN2_TxFrame, &DM_4310_Motor[1], 0, 0, 0, 0, gimbal.motor_set[YAW].Torque);    // yaw 力矩
-        TransmitFriMotorCurrent(&FDCAN1_TxFrame,
+        
+				TransmitGM6020Voltage(&FDCAN1_TxFrame, gm6020_voltage);   // GM6020 电压下发
+				
+				TransmitFriMotorCurrent(&FDCAN1_TxFrame,
                                 shoot.fri_motor_set[FR1].current_set,
                                 shoot.fri_motor_set[FR2].current_set);   // CAN 0x200 帧：摩擦轮电流
 

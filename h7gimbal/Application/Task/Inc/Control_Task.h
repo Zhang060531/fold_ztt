@@ -114,6 +114,24 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #define VISION_YAW_CORE_PID_MAX_IOUT 2
 #define VISION_YAW_CORE_PID_MAX_OUT 2.5     //YAW输出限幅
 
+
+/* =====================================================================
+ * GM6020 双环 PID（位置环 + 速度环）参数
+ * 外环 位置环：角度误差(°) → 目标转速(rpm)
+ * 内环 速度环：转速误差(rpm) → 电压
+ * ===================================================================== */
+#define GM6020_SHELL_PID_KP  7.0f        // 位置环 P：1°角度误差 → 5rpm 目标转速
+#define GM6020_SHELL_PID_KI  0.02f        // 位置环 I：先给 0，有静差再加
+#define GM6020_SHELL_PID_KD  0.0f        // 位置环 D：先给 0
+#define GM6020_SHELL_PID_MAX_IOUT  200.0f  // 位置环积分限幅(rpm)
+#define GM6020_SHELL_PID_MAX_OUT   200.0f  // 位置环输出限幅(目标转速上限 rpm)
+
+#define GM6020_CORE_PID_KP   72.0f       // 速度环 P：1rpm转速误差 → 60 电压
+#define GM6020_CORE_PID_KI   0.0f        // 速度环 I：先给 0
+#define GM6020_CORE_PID_KD   0.0f        // 速度环 D：先给 0
+#define GM6020_CORE_PID_MAX_IOUT  15000.0f  // 速度环积分限幅(电压)
+#define GM6020_CORE_PID_MAX_OUT   15000.0f  // 速度环输出限幅(电压)。首次先半压(15000)，稳了再提 30000
+
 /* 视觉速度前馈 */
 #define VISION_VEL_FF_GAIN      0.95f   /* 速度前馈增益 (0~1), 1.0=完全前馈 */
 #define VISION_VEL_LPF_ALPHA    0.85f   /* 速度估计低通滤波系数, 越大越平滑但滞后 */
@@ -243,7 +261,6 @@ typedef enum
 /* 云台工作模式（robot_mode_set 取值） */
 typedef enum
 {
-	INIT_MODE,        // 上电初始化模式(极短，初始化完成后切走)
 	ZERO_FORCE_MODE,  // 零力模式：力矩=0，云台可用手随便掰(安全，默认)
 	NORMAL_MODE,      // 普通模式：遥控器/键鼠手动控制云台角度
 	VISION_FOLLOW     // 视觉跟随：自瞄模式(由视觉偏移自动瞄准)
@@ -268,13 +285,6 @@ typedef enum
 	VISION_MODE     // 视觉模式：以视觉偏移为反馈(自瞄)
 }Motor_Behavior_e;
 
-/* 初始化进度标志位（init_flag 的各个 bit） */
-typedef enum{
-	INIT_START_BIT = 0,        // bit0: 开始初始化
-	INIT_GYRO_START_BIT,       // bit1: 陀螺仪校准开始
-	INIT_GYRO_SUCCESSFUL_BIT,  // bit2: 陀螺仪校准成功
-	INIT_SUCCESSFUL_BIT        // bit3: 初始化全部完成
-}Init_Flag_Bit_e;
 
 /* 超级电容/超功率模式开关 */
 typedef enum{
@@ -339,7 +349,6 @@ typedef struct
  *   angle / gyro           角度 / 陀螺仪角速度
  *   chassis_set[3]         底盘速度指令 [X]=前后 [Y]=左右 [Z]=旋转
  *   super_power_mode       超功率开关
- *   init_flag              初始化进度标志(见 Init_Flag_Bit_e)
  *   reset_flag             复位标志
  *   right_click            鼠标右键按住标志(自瞄)
  *   shootvison_mode        发射视觉模式标志 */
@@ -369,7 +378,7 @@ typedef struct
 	
 	float chassis_set[3];
 	Super_Power_Mode_e super_power_mode;	
-	int8_t init_flag;
+
 	int8_t reset_flag;
 	uint8_t right_click;
 	uint8_t shootvison_mode ;
@@ -377,7 +386,15 @@ typedef struct
 
 extern Gimbal_t gimbal;
 extern xQueueHandle CAN1_gimbal_Queue;
-void RobotReset(Gimbal_t* reset);
+
+/* GM6020 双环 PID 相关全局变量（定义在 Control_Task.c） */
+extern PID_Info_TypeDef gm6020_shell_pid;    // GM6020 外环 位置环 PID
+extern PID_Info_TypeDef gm6020_core_pid;     // GM6020 内环 速度环 PID
+extern volatile float  gm6020_target_angle;  // 目标角度(°)，Keil Watch 里改
+extern volatile uint8_t gm6020_enable;       // 使能开关：0=关(电压恒0，安全)，1=开
+extern int16_t gm6020_voltage;               // 双环算出的电压(-30000~30000)，CAN_Task 下发
+
+
 extern void gimbal_task(void const *pvParameters);
 extern uint32_t GetMotorFR1Fdb(DJI_Motor_Info_Typedef * motor);
 extern uint32_t GetMotorFR2Fdb(DJI_Motor_Info_Typedef * motor);
