@@ -132,6 +132,13 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #define GM6020_CORE_PID_MAX_IOUT  15000.0f  // 速度环积分限幅(电压)
 #define GM6020_CORE_PID_MAX_OUT   15000.0f  // 速度环输出限幅(电压)。首次先半压(15000)，稳了再提 30000
 
+//大pitch GM6020折叠/展开的目标角度（按照安装时的水平和竖直角度 要改！！）
+#define GM6020_EXTEND_ANGLE  0.0f  //展开：大pitch立起来（正常作战角度）
+#define GM6020_FOLD_ANGLE -90.0f   //收缩：大pitch趴下果冻
+//收缩时小pitch保持的水平角度（也是按实测水平fdb角度填 哦对达秒可以直接设置零点）
+#define PITCH_LEVEL_ANGLE 0.0f  //收缩时小pitch保持的目标角度
+
+
 /* 视觉速度前馈 */
 #define VISION_VEL_FF_GAIN      0.95f   /* 速度前馈增益 (0~1), 1.0=完全前馈 */
 #define VISION_VEL_LPF_ALPHA    0.85f   /* 速度估计低通滤波系数, 越大越平滑但滞后 */

@@ -96,8 +96,6 @@ extern Shoot_t shoot;                  // 发射机构数据（摩擦轮/拨弹�
  *     RC.Switch/Stop/Left/Right/Trigger 开关/停止/左/右/扳机
  *     Key.V 键盘        Mouse.* 鼠标
  *
- * 【只想用 DT7、停用图传】把所有 "VT13_Info.*" 那一项删掉(或注释掉)即可，
- *    DT7 的 remote_ctrl 部分本来就在，删掉 VT13 项后车就只听 DT7。
  *********************************************************/
 uint32_t vision_last_valid_time[2] = {0, 0};  // YAW/PITCH 最后一次收到有效视觉数据的时间
 #define VISION_DATA_TIMEOUT_MS 500  // 500ms 没收到视觉数据就认为视觉丢失
@@ -415,20 +413,34 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
         UI_force_mode = UI_force_mode % 2;
     }
 
-    if (remote_ctrl.rc.s[0] == 3 || remote_ctrl.rc.s[0] == 2 || UI_force_mode == 1)
-    {
-        gimbal_mode_set->robot_mode_set = NORMAL_MODE;
-        gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;
-        gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;
-    }
-    else
-    {
-        gimbal_mode_set->robot_mode_set = ZERO_FORCE_MODE;
+		//改 
+		//s[0]=1 小陀螺（大pitch展开 云台受控 底盘旋转）
+		//s[0]=3 收缩模式（大pitch趴下 小pitch水平 yaw在限位范围移动 yaw要先转到轮组方向）
+		//s[0]=2 无力模式 
+		if(remote_ctrl.rc.s[0] ==1)
+		{
+			gimbal_mode_set->robot_mode_set = NORMAL_MODE;
+			gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;
+			gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;
+			gm6020_enable = 1; //大pitch立起来
+			gm6020_target_angle = GM6020_EXTEND_ANGLE;
+		}
+		else if(remote_ctrl.rc.s[0] == 3)
+		{
+			gimbal_mode_set->robot_mode_set = NORMAL_MODE;
+			gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;   // 小pitch保持水平
+      gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;     // yaw 正常遥控
+			gm6020_enable = 1;
+			gm6020_target_angle = GM6020_FOLD_ANGLE;
+		}
+		else if(remote_ctrl.rc.s[0] == 2)
+		{
+			gimbal_mode_set->robot_mode_set = ZERO_FORCE_MODE;
         gimbal_mode_set->motor_mode[PITCH] = RELATIVE_MODE;
         gimbal_mode_set->motor_mode[YAW] = RELATIVE_MODE;
-
-    }
-
+        gm6020_enable = 0;                          // 大pitch松
+		}
+		
     if (((REF_key_robot_mode & KEY_PRESSED_OFFSET_SHIFT) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_SHIFT) == 0)||(ui_rotate_mode == 1 && ui_rotate_mode_last == 0))
     {
         Key_ctrl_flag++;
@@ -492,29 +504,25 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
 }
 
 
-/**
- * @brief 根据遥控器拨杆 s[1] 设定底盘跟随模式
- * @note  【修改】右上拨杆 s[1] 三档：s[1]=1(上,0x01)=自瞄，s[1]=3(中)=云底跟随，
- *        s[1]=2(下)=小陀螺/旋转。原「s[1]=1=不跟随」已去掉，
- *        「不跟随」仍可用 R 键切换（见 GimbalModeSet）。
- */
+//改 底盘模式
+//s[0]=1  小陀螺
+//s[0]=3  云底
+//s[0]=2  云底（无力）
 static void ChassisModeSet(Gimbal_t* ch_mode_set)
 {
     ch_mode_set->chassis_last_mode = ch_mode_set->chassis_mode;
 
-    if (remote_ctrl.rc.s[1] == 3)
+    if (remote_ctrl.rc.s[0] == 1)
     {  
+        ch_mode_set->chassis_mode = CHASSIS_ROTATE_MODE;  
+    }
+    else if (remote_ctrl.rc.s[0] == 3)
+    {
         ch_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
     }
-    else if (remote_ctrl.rc.s[1] == 2)
+    else if (remote_ctrl.rc.s[0] == 2)   
     {
-        ch_mode_set->chassis_mode = CHASSIS_ROTATE_MODE;
-    }
-    else if (remote_ctrl.rc.s[1] == 1)   //【修改】原=CHASSIS_NO_FOLLOW_GIMBAL_MODE(不跟随)，现改成"自瞄"档
-    {
-        // 自瞄档：底盘跟随云台。云台自瞄由 GimbalModeSet 里 s[1]==1 触发 VISION_MODE 完成；
-        // 自瞄时底盘只平移、不旋转，旋转交给云台自己（见 ChassisSpeedSet 的 VISION_MODE 分支）。
-        ch_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
+        ch_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;  //无力模式会直接在ChassisSpeedSet中清0
     }
 }
 
@@ -581,16 +589,24 @@ static void PitchAngleRefSet(Gimbal_t* angle_set)
     }
 
     else if (angle_set->robot_mode_set == NORMAL_MODE)
-    {   //pitch同下 有一样的结论
+    {   
+			  //新增
+				if(remote_ctrl.rc.s[0] == 3)
+				{
+					angle_set->angle.absolute_set[PITCH] = PITCH_LEVEL_ANGLE;
+					pitch_ref_vel = 0.0f;
+				}
+				else
+				{
         // 俯仰目标角增量 = 摇杆输入 之和：【DT7】ch[1](右摇杆上下) + 【DT7】mouse.y(鼠标Y)
-        //                               +【图传VT13】Channel[1] +【图传VT13】Mouse.Y
-        // 想只用 DT7：删掉下面带 VT13_Info 的两项即可
+        //                               +【图传VT13】Channel[1] +【图传VT13】Mouse.
         add_angle = -(float)remote_ctrl.rc.ch[1] / CHANNEL_PITCH_SCALE_FACTOR - (float)VT13_Info.RC.Channel[1] / CHANNEL_PITCH_SCALE_FACTOR - (float)remote_ctrl.mouse.y / MOUSE_SCALE_FACTOR - VT13_Info.Mouse.Y / MOUSE_SCALE_FACTOR;
         addPitchAngle(angle_set, -add_angle);
 
         //【新增】速度前馈：把本周期角度增量换算成参考角速度(°/s)。
         //        addPitchAngle 传的是 -add_angle，所以实际增量是 -add_angle，参考速度也跟着取反。
         pitch_ref_vel = -add_angle / GIMBAL_CONTROL_PERIOD_S;
+			  }
     }
     else if (angle_set->robot_mode_set == VISION_FOLLOW)
     {
