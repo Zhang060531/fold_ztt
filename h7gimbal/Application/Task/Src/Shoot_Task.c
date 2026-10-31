@@ -224,19 +224,19 @@ Shoot_Mode_e Shoot_Mode_Update(Shoot_t* shoot)
         new_mode = SHOOT_NORMAL;
     }
 
-    /* === 第 2 步：开关切换 ===
+    // === 第 2 步：开关切换 ===
 		//改
-     * 键盘 F 键 / UI 摩擦轮开关：在 停止↔就绪 之间切换(边沿触发)
-     */
-		if(remote_ctrl.rc.s[1] == 2 && remote_ctrl.rc.s[0] == 1)
-		{
-			if(new_mode == SHOOT_STOP) new_mode = SHOOT_READY;
-		}
-		else
-		{
-			if (new_mode == SHOOT_READY || new_mode == SHOOT_NORMAL) new_mode = SHOOT_STOP;
-		}
-
+    // 键盘 F 键 
+		//先不开摩擦轮！！
+//		if(remote_ctrl.rc.s[1] == 2 && remote_ctrl.rc.s[0] == 1)
+//		{
+//			if(new_mode == SHOOT_STOP) new_mode = SHOOT_READY;
+//		}
+//		else
+//		{
+//			if (new_mode == SHOOT_READY || new_mode == SHOOT_NORMAL) new_mode = SHOOT_STOP;
+//		}
+      
     if (((REF_key_robot_mode & KEY_PRESSED_OFFSET_F) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_F) == 0)
         || (ui_fri_mode == 1 && ui_fri_mode_last == 0)) {
         if (new_mode == SHOOT_STOP) new_mode = SHOOT_READY;

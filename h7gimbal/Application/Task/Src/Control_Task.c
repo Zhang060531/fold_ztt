@@ -414,31 +414,31 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
     }
 
 		//改 
-		//s[0]=1 小陀螺（大pitch展开 云台受控 底盘旋转）
-		//s[0]=3 收缩模式（大pitch趴下 小pitch水平 yaw在限位范围移动 yaw要先转到轮组方向）
-		//s[0]=2 无力模式 
-		if(remote_ctrl.rc.s[0] ==1)
+		//s[1]=1 无力
+		//s[1]=3 伸展
+		//s[1]=2 收缩
+		if(remote_ctrl.rc.s[1] ==1)
 		{
-			gimbal_mode_set->robot_mode_set = NORMAL_MODE;
-			gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;
-			gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;
-			gm6020_enable = 1; //大pitch立起来
-			gm6020_target_angle = GM6020_EXTEND_ANGLE;
+			gimbal_mode_set->robot_mode_set = ZERO_FORCE_MODE;
+			gimbal_mode_set->motor_mode[YAW] = RELATIVE_MODE;
+			gimbal_mode_set->motor_mode[PITCH] = RELATIVE_MODE;
+			gm6020_enable = 0; 
 		}
-		else if(remote_ctrl.rc.s[0] == 3)
+		else if(remote_ctrl.rc.s[1] == 3)
 		{
 			gimbal_mode_set->robot_mode_set = NORMAL_MODE;
-			gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;   // 小pitch保持水平
-      gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;     // yaw 正常遥控
+			gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;   
+      gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;     
 			gm6020_enable = 1;
 			gm6020_target_angle = GM6020_FOLD_ANGLE;
 		}
-		else if(remote_ctrl.rc.s[0] == 2)
+		else if(remote_ctrl.rc.s[1] == 2)
 		{
 			gimbal_mode_set->robot_mode_set = ZERO_FORCE_MODE;
         gimbal_mode_set->motor_mode[PITCH] = RELATIVE_MODE;
         gimbal_mode_set->motor_mode[YAW] = RELATIVE_MODE;
-        gm6020_enable = 0;                          // 大pitch松
+        gm6020_enable = 1;
+				gm6020_target_angle = GM6020_FOLD_ANGLE;
 		}
 		
     if (((REF_key_robot_mode & KEY_PRESSED_OFFSET_SHIFT) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_SHIFT) == 0)||(ui_rotate_mode == 1 && ui_rotate_mode_last == 0))
@@ -487,9 +487,8 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
         remote_ctrl.rc.s[1] = 0;
     }
 		
-    /*【修改】自瞄触发条件：原只有「图传鼠标右键 REF_mouse_right / VT13 拨杆 Switch==2」，
-     * 现新增 remote_ctrl.rc.s[1]==1（右上拨杆 1 档=0x01），拨到该档也进入自瞄 VISION_MODE。 */
-    if (REF_mouse_right == 1||VT13_Info.RC.Switch==2 || remote_ctrl.rc.s[1] == 1)
+		//自瞄
+    if (REF_mouse_right == 1||VT13_Info.RC.Switch==2 || remote_ctrl.rc.s[0] == 2)
     {
         gimbal_mode_set->motor_mode[YAW] = VISION_MODE;
         gimbal_mode_set->motor_mode[PITCH] = VISION_MODE;
@@ -507,7 +506,7 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
 //改 底盘模式
 //s[0]=1  小陀螺
 //s[0]=3  云底
-//s[0]=2  云底（无力）
+//s[0]=2  自瞄
 static void ChassisModeSet(Gimbal_t* ch_mode_set)
 {
     ch_mode_set->chassis_last_mode = ch_mode_set->chassis_mode;
@@ -522,7 +521,9 @@ static void ChassisModeSet(Gimbal_t* ch_mode_set)
     }
     else if (remote_ctrl.rc.s[0] == 2)   
     {
-        ch_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;  //无力模式会直接在ChassisSpeedSet中清0
+			//提示：为什么 s[0]=2（自瞄）底盘还是 FOLLOW？因为自瞄时「底盘不旋转」这件事，是由 ChassisSpeedSet 
+			//里看到 motor_mode==VISION_MODE 后自动把 Z 轴清 0 实现的，这里设 FOLLOW 就行。
+        ch_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;    
     }
 }
 
@@ -590,8 +591,8 @@ static void PitchAngleRefSet(Gimbal_t* angle_set)
 
     else if (angle_set->robot_mode_set == NORMAL_MODE)
     {   
-			  //新增
-				if(remote_ctrl.rc.s[0] == 3)
+			  //新增 收缩模式小pitch保持水平
+				if(remote_ctrl.rc.s[1] == 2)
 				{
 					angle_set->angle.absolute_set[PITCH] = PITCH_LEVEL_ANGLE;
 					pitch_ref_vel = 0.0f;
