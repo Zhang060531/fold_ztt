@@ -38,6 +38,9 @@
   ..\Drivers\STM32H7xx_HAL_Driver\Inc\stm32h7xx_hal_pcd_ex.h \
   ..\BSP\Inc\bsp_can.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS_V2\cmsis_os.h \
+  ..\Drivers\CMSIS\RTOS2\Include\cmsis_os2.h \
+  ..\Components\Device\Inc\Motor.h ..\Application\Task\Inc\config.h \
+  ..\Components\Device\Inc\vision.h ..\Application\Task\Inc\Shoot_Task.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\FreeRTOS.h \
   ..\Core\Inc\FreeRTOSConfig.h \
   ..\SystemView\Sample\FreeRTOSV10\SEGGER_SYSVIEW_FreeRTOS.h \
@@ -51,12 +54,9 @@
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\deprecated_definitions.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\portable\RVDS\ARM_CM4F\portmacro.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\mpu_wrappers.h \
+  ..\Middlewares\Third_Party\FreeRTOS\Source\include\queue.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\task.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\list.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS_V2\cmsis_os2.h \
-  ..\Components\Device\Inc\Motor.h ..\Application\Task\Inc\config.h \
-  ..\Components\Device\Inc\vision.h ..\Application\Task\Inc\Shoot_Task.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\include\queue.h \
   ..\Components\Algorithm\Inc\Quaternion.h \
   ..\Components\Algorithm\Inc\Kalman_Filter.h \
   ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \

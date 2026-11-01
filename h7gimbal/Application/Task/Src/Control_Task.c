@@ -423,6 +423,7 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
 			gimbal_mode_set->motor_mode[YAW] = RELATIVE_MODE;
 			gimbal_mode_set->motor_mode[PITCH] = RELATIVE_MODE;
 			gm6020_enable = 0; 
+			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
 		}
 		else if(remote_ctrl.rc.s[1] == 3)
 		{
@@ -431,6 +432,7 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
       gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;     
 			gm6020_enable = 1;
 			gm6020_target_angle = GM6020_FOLD_ANGLE;
+			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
 		}
 		else if(remote_ctrl.rc.s[1] == 2)
 		{

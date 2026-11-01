@@ -33,6 +33,8 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
 
 /* 发射机构电机(M2006), 发 0x1FF / 收 0x205 */
 DJI_Motor_Info_Typedef Shoot_Motor =
@@ -157,6 +159,7 @@ void DJI_Motor_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf,DJI_Motor_Info_
     if(*Identifier != DJI_Motor->FDCANFrame.RxIdentifier) return;
     
     DJI_Motor->Motor_time=xTaskGetTickCount();
+
     DJI_Motor->Data.Temperature = Rx_Buf[6];
     DJI_Motor->Data.Encoder  = ((int16_t)Rx_Buf[0] << 8 | (int16_t)Rx_Buf[1]);
     DJI_Motor->Data.Velocity = ((int16_t)Rx_Buf[2] << 8 | (int16_t)Rx_Buf[3]);

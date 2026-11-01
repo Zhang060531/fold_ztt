@@ -18,6 +18,9 @@
 #include "Motor.h"
 #include "Control_Task.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 /* ===== 文件说明：CAN 底层驱动 (bsp_can.c) —— 三路 FDCAN 的收发 =====
  * 作用：负责整车三路 FDCAN 的初始化(过滤器+中断)、接收中断分发、发送接口，
  *       以及各电机/电管/云台反馈数据的读取接口。
@@ -360,6 +363,7 @@ void Chassis_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, Chassis_Info_Typ
 
     /* transforms the  gimbal data：解析 X/Y/Z 三轴速度(带符号, 除 1000 还原) */
     ChassisData->chassis_speed_set_time[CHASSIS_X] = xTaskGetTickCount();          /* 记录 X 指令到达时刻 */
+	
     ChassisData->chassis_xyz_set[CHASSIS_X] = Int16ToFloat(((int16_t)((Rx_Buf[0] << 8) | Rx_Buf[1]))) / 1000.0f;
     ChassisData->chassis_speed_set_time[CHASSIS_Y] = xTaskGetTickCount();          /* 记录 Y 指令到达时刻 */
     ChassisData->chassis_xyz_set[CHASSIS_Y] = Int16ToFloat(((int16_t)((Rx_Buf[2] << 8) | Rx_Buf[3]))) / 1000.0f;

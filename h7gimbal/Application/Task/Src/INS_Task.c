@@ -36,6 +36,8 @@
 #include "Quaternion.h"      /* 四元数 + 扩展卡尔曼滤波姿态解算 */
 #include "bsp_pwm.h"         /* 板级 PWM(加热片功率控制) */
 
+#include "FreeRTOS.h"
+#include "task.h"
 /* 下面 4 个 GetIMUxxx 是"对外读取接口"的前置声明(定义在本文件末尾)。
  * 其它任务(如云台控制)通过它们读取 IMU 解算出的角度/角速度。 */
 void GetIMUPitchAngleFdb(float* angle);
@@ -135,7 +137,8 @@ void INS_Task(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-    INS_Task_SysTick = osKernelSysTick();   /* 读取当前系统 tick(1 tick = 1ms) */
+    //INS_Task_SysTick = osKernelSysTick();   /* 读取当前系统 tick(1 tick = 1ms) */
+		INS_Task_SysTick = xTaskGetTickCount();   /* 读取当前系统 tick(1 tick = 1ms) */
 
 		/* Update the BMI088 measurement —— 读取 BMI088 最新原始数据(陀螺 rad/s、加速度 g、温度) */
     BMI088_Info_Update(&BMI088_Info);

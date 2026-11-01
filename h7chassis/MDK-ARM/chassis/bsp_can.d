@@ -37,6 +37,13 @@
   ..\Drivers\STM32H7xx_HAL_Driver\Inc\stm32h7xx_ll_usb.h \
   ..\Drivers\STM32H7xx_HAL_Driver\Inc\stm32h7xx_hal_pcd_ex.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS_V2\cmsis_os.h \
+  ..\Drivers\CMSIS\RTOS2\Include\cmsis_os2.h \
+  ..\Components\Device\Inc\Motor.h ..\Application\Task\Inc\config.h \
+  ..\BSP\Inc\bsp_can.h ..\Application\Task\Inc\Control_Task.h \
+  ..\Components\Device\Inc\Referee_System.h \
+  ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
+  ..\Drivers\CMSIS\Include\cmsis_compiler.h \
+  ..\Components\Algorithm\Inc\RLS.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\FreeRTOS.h \
   ..\Core\Inc\FreeRTOSConfig.h \
   ..\SystemView\Sample\FreeRTOSV10\SEGGER_SYSVIEW_FreeRTOS.h \
@@ -51,11 +58,4 @@
   ..\Middlewares\Third_Party\FreeRTOS\Source\portable\RVDS\ARM_CM4F\portmacro.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\mpu_wrappers.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\task.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\include\list.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS_V2\cmsis_os2.h \
-  ..\Components\Device\Inc\Motor.h ..\Application\Task\Inc\config.h \
-  ..\BSP\Inc\bsp_can.h ..\Application\Task\Inc\Control_Task.h \
-  ..\Components\Device\Inc\Referee_System.h \
-  ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
-  ..\Drivers\CMSIS\Include\cmsis_compiler.h \
-  ..\Components\Algorithm\Inc\RLS.h
+  ..\Middlewares\Third_Party\FreeRTOS\Source\include\list.h

@@ -100,7 +100,9 @@ void CAN_Task(void const * argument)
 	      front = front1 * cos(gimbal.angle.absolute_fdb[PITCH] * 2 * PI / 360);   // pitch 重力补偿：随俯仰角余弦变化，水平时最大
 			  //新版重力补偿前馈
         g_offset = -calc_gravity_compensation(&g_param);
-        CAN_Task_SysTick = osKernelSysTick();
+			
+        //CAN_Task_SysTick = osKernelSysTick();
+			  CAN_Task_SysTick = xTaskGetTickCount();
         // CAN-FD
         if (gimbal.pitch_motor_fdb.Data.State != 1)
         {

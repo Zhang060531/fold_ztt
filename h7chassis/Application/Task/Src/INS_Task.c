@@ -42,6 +42,8 @@
 #include "Quaternion.h"
 #include "bsp_pwm.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
 /**
   * @brief the structure that contains the information for the INS.
   * @note  IMU 姿态信息结构体（全局）。INS_Task 每 1ms 更新它的角度/角速度，
@@ -134,8 +136,8 @@ void INS_Task(void const * argument)
   /* 无限循环（每 1ms 解算一次） */
   for(;;)
   {
-    INS_Task_SysTick = osKernelSysTick();
-		
+    //INS_Task_SysTick = osKernelSysTick();
+		INS_Task_SysTick = xTaskGetTickCount();
 		/* 更新 BMI088 原始测量数据（加速度/角速度/温度） */
     BMI088_Info_Update(&BMI088_Info);
 

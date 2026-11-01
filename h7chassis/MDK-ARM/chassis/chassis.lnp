@@ -74,6 +74,7 @@
 ".\chassis\stm32h7xx_hal_uart.o"
 ".\chassis\stm32h7xx_hal_uart_ex.o"
 ".\chassis\system_stm32h7xx.o"
+".\chassis\mpu_wrappers_v2.o"
 ".\chassis\croutine.o"
 ".\chassis\event_groups.o"
 ".\chassis\list.o"

@@ -28,6 +28,9 @@
 #include "stdio.h"
 #include "ui.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 /* 全局变量 ui: 疑似历史遗留/调试用变量，本工程未见实际使用 */
 int ui = 0;
 
@@ -241,7 +244,8 @@ void UI_Task(void const * argument)
 
     while (1)
     {
-        UI_Task_SysTick = osKernelSysTick();
+        //UI_Task_SysTick = osKernelSysTick();
+				UI_Task_SysTick =  xTaskGetTickCount();
 
 //        // 仅在特定周期触发强制重置，防止正常情况下闪烁
 //         if(UI_Task_SysTick % 1000 == 0){

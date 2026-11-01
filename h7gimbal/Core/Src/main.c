@@ -16,30 +16,6 @@
   ******************************************************************************
   */
 /* USER CODE END Header */
-
-/**
- * =====================================================================
- * 文件说明：程序入口 + 启动流程 (main.c，CubeMX 生成)
- * ---------------------------------------------------------------------
- * 本文件是整机程序的「开机启动」代码，真正的业务逻辑在 FreeRTOS 任务里
- * （任务在 freertos.c 的 MX_FREERTOS_Init() 中创建）。main() 只负责：
- *
- *   1. MPU_Config()          配置内存保护单元（保护 AXI SRAM 区域）
- *   2. SCB_EnableI/DCache()  使能 CPU 一级指令/数据缓存（提速）
- *   3. HAL_Init()            复位所有外设、初始化 Flash 接口和 SysTick
- *   4. SystemClock_Config()  配置系统主时钟（见下方，主频 500MHz）
- *   5. MX_xxx_Init()         初始化 CubeMX 里勾选的外设（CAN/串口/SPI/定时器等）
- *   6. MCU_Init()            用户自己的板级初始化（见 bsp_mcu.c）
- *   7. osKernelInitialize() + MX_FREERTOS_Init()  建内核 + 建任务
- *   8. osKernelStart()       启动调度器，此后 CPU 完全交给 FreeRTOS
- *
- * ===== 调车关注 =====
- *  - osKernelStart() 之后基本不会再执行到下面的 while(1)，它只是兜底。
- *  - 想改主频/外设时钟，去 CubeMX 的时钟树里改，别手改这里（会被覆盖）。
- *  - 各外设引脚、DMA、中断优先级都在对应的 xxx.c(MX_xxx_Init)里配。
- * =====================================================================
- */
-
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "FreeRTOS.h"
@@ -101,7 +77,7 @@ void MX_FREERTOS_Init(void);
   * @retval int
   */
 int main(void)
-  {
+{
 
   /* USER CODE BEGIN 1 */
 
@@ -127,7 +103,7 @@ int main(void)
 
   /* USER CODE END Init */
 
-  /* 配置系统主时钟：SYSCLK = HSE / PLLM * PLLN / PLLP = 500MHz（HSE 25MHz 时） */
+  /* Configure the system clock */
   SystemClock_Config();
 
   /* Configure the peripherals common clocks */
@@ -137,7 +113,7 @@ int main(void)
 
   /* USER CODE END SysInit */
 
-  /* 初始化 CubeMX 里勾选的所有外设：GPIO/DMA/FDCAN/串口/SPI/定时器/ADC */
+  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_BDMA_Init();
@@ -162,11 +138,11 @@ int main(void)
 	Power_OUT2_ON;
   /* USER CODE END 2 */
 
-  /* 初始化 FreeRTOS 内核，并创建所有任务/队列/定时器（见 freertos.c） */
-  osKernelInitialize();  /* 调用 CMSIS-RTOS 初始化，准备内核对象 */
-  MX_FREERTOS_Init();    /* 在 freertos.c 里创建任务：控制/CAN/UI/检测等 */
+  /* Init scheduler */
+  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
+  MX_FREERTOS_Init();
 
-  /* 启动调度器：从此刻起 CPU 交给 FreeRTOS 调度，基本不会再回到下面 while(1) */
+  /* Start scheduler */
   osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */

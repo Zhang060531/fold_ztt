@@ -1,21 +1,6 @@
 ./chassis/can_task.o: ..\Application\Task\Src\CAN_Task.c \
   ..\Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS_V2\cmsis_os.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\include\FreeRTOS.h \
-  ..\Core\Inc\FreeRTOSConfig.h \
-  ..\SystemView\Sample\FreeRTOSV10\SEGGER_SYSVIEW_FreeRTOS.h \
-  ..\SystemView\SEGGER\SEGGER_SYSVIEW.h ..\SystemView\SEGGER\SEGGER.h \
-  ..\SystemView\Config\Global.h \
-  ..\SystemView\SEGGER\SEGGER_SYSVIEW_ConfDefaults.h \
-  ..\SystemView\Config\SEGGER_SYSVIEW_Conf.h \
-  ..\SystemView\Config\SEGGER_RTT_Conf.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\include\projdefs.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\include\portable.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\include\deprecated_definitions.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\portable\RVDS\ARM_CM4F\portmacro.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\include\mpu_wrappers.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\include\task.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\include\list.h \
-  ..\Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS_V2\cmsis_os2.h \
+  ..\Drivers\CMSIS\RTOS2\Include\cmsis_os2.h \
   ..\Application\Task\Inc\CAN_Task.h \
   ..\Application\Task\Inc\Control_Task.h \
   ..\Components\Device\Inc\Motor.h ..\Application\Task\Inc\config.h \
@@ -61,4 +46,19 @@
   ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
   ..\Drivers\CMSIS\Include\cmsis_compiler.h \
   ..\Components\Algorithm\Inc\RLS.h ..\Application\Task\Inc\INS_Task.h \
-  ..\Components\Device\Inc\Remote_Control.h
+  ..\Components\Device\Inc\Remote_Control.h \
+  ..\Middlewares\Third_Party\FreeRTOS\Source\include\FreeRTOS.h \
+  ..\Core\Inc\FreeRTOSConfig.h \
+  ..\SystemView\Sample\FreeRTOSV10\SEGGER_SYSVIEW_FreeRTOS.h \
+  ..\SystemView\SEGGER\SEGGER_SYSVIEW.h ..\SystemView\SEGGER\SEGGER.h \
+  ..\SystemView\Config\Global.h \
+  ..\SystemView\SEGGER\SEGGER_SYSVIEW_ConfDefaults.h \
+  ..\SystemView\Config\SEGGER_SYSVIEW_Conf.h \
+  ..\SystemView\Config\SEGGER_RTT_Conf.h \
+  ..\Middlewares\Third_Party\FreeRTOS\Source\include\projdefs.h \
+  ..\Middlewares\Third_Party\FreeRTOS\Source\include\portable.h \
+  ..\Middlewares\Third_Party\FreeRTOS\Source\include\deprecated_definitions.h \
+  ..\Middlewares\Third_Party\FreeRTOS\Source\portable\RVDS\ARM_CM4F\portmacro.h \
+  ..\Middlewares\Third_Party\FreeRTOS\Source\include\mpu_wrappers.h \
+  ..\Middlewares\Third_Party\FreeRTOS\Source\include\task.h \
+  ..\Middlewares\Third_Party\FreeRTOS\Source\include\list.h
