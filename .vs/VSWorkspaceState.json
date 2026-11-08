@@ -1,0 +1,11 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\h7chassis",
+    "\\h7chassis\\Application",
+    "\\h7chassis\\Application\\Task",
+    "\\h7chassis\\Application\\Task\\Src"
+  ],
+  "SelectedNode": "\\h7chassis\\Application\\Task\\Src\\CAN_Task.c",
+  "PreviewInSolutionExplorer": false
+}

@@ -21,6 +21,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "bsp_can.h"
+
 /* ===== 文件说明：CAN 底层驱动 (bsp_can.c) —— 三路 FDCAN 的收发 =====
  * 作用：负责整车三路 FDCAN 的初始化(过滤器+中断)、接收中断分发、发送接口，
  *       以及各电机/电管/云台反馈数据的读取接口。
@@ -71,6 +73,8 @@ void Sent_Superpower_Data(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,float set_power);
 FDCAN_RxFrame_TypeDef FDCAN_RxFIFO0Frame;
 FDCAN_RxFrame_TypeDef FDCAN_RxFIFO1Frame;
 
+LegacyEncoder g_enc[4];
+
 /* 超级电容/电管功率数据全局实例：接收帧 0x211 解析结果存这里 */
 SuperPower_Info_Typedef PowerData =
 {
@@ -110,7 +114,10 @@ Gimbal_Info_Typedef GiambalData =
     },
 
 };
-
+Encoder_Info_Typedef EncoderData =
+{
+	.FDCANFrame = {.RxIdentifier = 0x001}, //编码器ID=1
+};
 
 /**
  * @brief FDCAN1 发送帧(CLASSIC CAN)：大疆电机电流指令
@@ -233,6 +240,12 @@ void BSP_FDCAN_Init(void)
     HAL_FDCAN_ActivateNotification(&hfdcan3, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
 
     HAL_FDCAN_Start(&hfdcan3);
+		
+		/* 初始化 4 个磁编码器：绑定 FDCAN3，ID 分别 1/2/3/4 */
+    LegacyEncoder_Init(&g_enc[0], &hfdcan3, 1);
+    //LegacyEncoder_Init(&g_enc[1], &hfdcan3, 2);
+    //LegacyEncoder_Init(&g_enc[2], &hfdcan3, 3);
+    //LegacyEncoder_Init(&g_enc[3], &hfdcan3, 4);
 }
 
 /**
@@ -292,7 +305,22 @@ void SuperPower_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, SuperPower_In
 
 //
 }
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+void Encoder_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, Encoder_Info_Typedef *EncoderData)
+{
+    if (*Identifier != EncoderData->FDCANFrame.RxIdentifier) return;
 
+    /* 角度 = 4 字节 little-endian IEEE-754 float（手册 §9，用 memcpy 避免对齐/别名问题） */
+    memcpy(&EncoderData->angle_deg, Rx_Buf, 4);
+    EncoderData->update_time = HAL_GetTick();
+}
+
+uint32_t GetEncoderAngleDeg(float *angle)
+{
+    *angle = EncoderData.angle_deg;
+    return EncoderData.update_time;
+}
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
   * @brief  解析云台状态帧(0x22)并更新 GiambalData
@@ -401,9 +429,17 @@ static void FDCAN1_RxFifo0RxHandler(uint32_t *Identifier, uint8_t Data[8])
   * @retval 无
   * @note   当前为空，视觉/妙算的 CAN 数据暂未接入解析。
   */
+
 static void FDCAN3_RxFifo0RxHandler(uint32_t *Identifier, uint8_t Data[8])
 {
-	/* 注意: 当前为空，视觉/妙算(FDCAN3)的接收帧未做任何解析，如需使用在此补充 */
+	
+	  //注意: 当前为空，视觉/妙算(FDCAN3)的接收帧未做任何解析，如需使用在此补充 */
+		//Encoder_Info_Update(Identifier,Data,&EncoderData);
+			/* 把收到的这一帧，喂给 4 个编码器；每个内部自己判断“是不是我的帧” */
+    LegacyEncoder_OnCanFrame(&g_enc[0], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
+    //LegacyEncoder_OnCanFrame(&g_enc[1], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
+    //LegacyEncoder_OnCanFrame(&g_enc[2], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
+    //LegacyEncoder_OnCanFrame(&g_enc[3], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
 }
 
 
@@ -419,8 +455,6 @@ static void FDCAN2_RxFifo1RxHandler(uint32_t *Identifier, uint8_t Data[8])
     Gimbal_Info_Update(Identifier, Data, &GiambalData);           /* 云台状态(收 0x22) */
     Chassis_Info_Update(Identifier, Data, &ChassisData);          /* 底盘速度指令(收 0x21) */
 	  DM_Motor_Info_Update(Identifier, Data, &DM_4310_Motor[0]);   /* DM4310 回传(收 0x12) */
-	  /* 注意: Swerve 底盘的 LK 舵向电机(LK_Motors[4], 收 0x181~0x184)反馈
-	   * 未在此解析，若舵向电机读不到数据需在此补 LK_Motor_Info_Update。 */
 
 }
 
@@ -554,7 +588,8 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     {
 
         FDCAN3_RxFifo0RxHandler(&FDCAN_RxFIFO0Frame.Header.Identifier, FDCAN_RxFIFO0Frame.Data);
-
+				
+			
     }
 
 }

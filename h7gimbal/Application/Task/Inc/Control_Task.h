@@ -126,17 +126,11 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #define GM6020_SHELL_PID_MAX_IOUT  200.0f  // 位置环积分限幅(rpm)
 #define GM6020_SHELL_PID_MAX_OUT   200.0f  // 位置环输出限幅(目标转速上限 rpm)
 
-#define GM6020_CORE_PID_KP   72.0f       // 速度环 P：1rpm转速误差 → 60 电压
+#define GM6020_CORE_PID_KP   60.0f       // 速度环 P：1rpm转速误差 → 60 电压
 #define GM6020_CORE_PID_KI   0.0f        // 速度环 I：先给 0
 #define GM6020_CORE_PID_KD   0.0f        // 速度环 D：先给 0
 #define GM6020_CORE_PID_MAX_IOUT  15000.0f  // 速度环积分限幅(电压)
 #define GM6020_CORE_PID_MAX_OUT   15000.0f  // 速度环输出限幅(电压)。首次先半压(15000)，稳了再提 30000
-
-//大pitch GM6020折叠/展开的目标角度（按照安装时的水平和竖直角度 要改！！）
-#define GM6020_EXTEND_ANGLE  0.0f  //展开：大pitch立起来（正常作战角度）
-#define GM6020_FOLD_ANGLE -90.0f   //收缩：大pitch趴下果冻
-//收缩时小pitch保持的水平角度（也是按实测水平fdb角度填 哦对达秒可以直接设置零点）
-#define PITCH_LEVEL_ANGLE 0.0f  //收缩时小pitch保持的目标角度
 
 
 /* 视觉速度前馈 */
@@ -165,6 +159,15 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #define FOLLOW_PID_KD_PIECE2 0
 #define FOLLOW_PID_ERR_BOUNDARY 5
 
+//大pitch GM6020折叠/展开的目标角度（按照安装时的水平和竖直角度 要改！！）
+#define GM6020_EXTEND_ANGLE  0.0f  //展开：大pitch立起来（正常作战角度）
+#define GM6020_FOLD_ANGLE -90.0f   //收缩：大pitch趴下果冻
+//收缩时小pitch保持的水平角度（也是按实测水平fdb角度填 哦对达秒可以直接设置零点）
+#define PITCH_LEVEL_ANGLE 0.0f  //收缩时小pitch保持的目标角度
+
+//大pitch抱闸死区（越小就越准但难锁上 越大越容易锁上但停的糙）
+#define GM6020_LOCK_DEADBAND 3.0f  //误差小于它就锁死
+#define GM6020_UNLOCK_DEADBAND 5.0f  //误差大于它才松开重动
 
 #ifndef NULL
 #define NULL 0
@@ -184,8 +187,6 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #ifndef RAD_TO_ANGLE
 #define RAD_TO_ANGLE 57.295779513082320876798154814105f
 #endif
-
-
 
 
 /* =====================================================================
@@ -216,19 +217,17 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #define PITCH_RELATIVE_MIN_ANGLE -3
 
 
-
 /* 底盘速度三分量下标：X/Y 平移，Z 旋转，对应 chassis_set[3] */
 #define CHASSIS_X 0
 #define CHASSIS_Y 1
 #define CHASSIS_Z 2
 
-#define CHASSIS_X_Y_Z_ID 0x301
-#define CHASSIS_UI_YAW_ID 0x299 //0x302
+#define CHASSIS_X_Y_Z_ID 0x301   //没用
+#define CHASSIS_UI_YAW_ID 0x299 //0x302  //没用
 
 
 #define REMOTE_CHANNLE_TO_CHASSIS_SPEED 0.015f                                                //0.01	
-#define ROTATE_REMOTE_CHANNLE_TO_CHASSIS_SPEED (REMOTE_CHANNLE_TO_CHASSIS_SPEED / 50)
-
+#define ROTATE_REMOTE_CHANNLE_TO_CHASSIS_SPEED (REMOTE_CHANNLE_TO_CHASSIS_SPEED / 50)     //没用
 
 
 /* 键盘按键位掩码：大疆图传键鼠的按键状态是 16bit 位图，每个键占一位。
@@ -269,8 +268,11 @@ typedef enum
 typedef enum
 {
 	ZERO_FORCE_MODE,  // 零力模式：力矩=0，云台可用手随便掰(安全，默认)
-	NORMAL_MODE,      // 普通模式：遥控器/键鼠手动控制云台角度
-	VISION_FOLLOW     // 视觉跟随：自瞄模式(由视觉偏移自动瞄准)
+	VISION_FOLLOW,     // 视觉跟随：自瞄模式(由视觉偏移自动瞄准)
+	
+	EXTEND_MODE,
+	FOLD_MODE
+	
 }Robot_Behavior_e;
 
 /* 底盘跟随云台的模式（chassis_mode 取值） */
@@ -279,8 +281,6 @@ typedef enum
 	CHASSIS_NO_FOLLOW_GIMBAL_MODE,  // 底盘不跟随：云台独立转，底盘按摇杆方向平移
 	CHASSIS_FOLLOW_GIMBAL_MODE,     // 底盘跟随：云台转过一定角度底盘跟着转(小陀螺)
 	CHASSIS_ROTATE_MODE,            // 底盘旋转模式：底盘原地旋转
-	LIFT_ENABLE_MODE,               // 升降机构使能(本车可能未用)
-	LIFT_DISABLE_MODE               // 升降机构失能(本车可能未用)
 }Chassis_Behavior_e;
 
 
@@ -328,7 +328,6 @@ typedef struct
 /* 角度数据：
  *   absolute_fdb/set[3]  IMU 绝对角（[0]=yaw [1]=roll [2]=pitch，与 IMU 下标一致）
  *   relative_fdb/set[2]  电机编码器相对角（[0]=pitch [1]=yaw）
- *   graph_*              给上位机画波形用的副本
  *   absolute_filt[3]     绝对角滤波值 */
 typedef struct
 {
@@ -338,13 +337,16 @@ typedef struct
 	float relative_fdb[2];
 	float relative_set[2];
 	
-	float graph_absolute_fdb;
-	float graph_absolute_set;
-	float graph_relative_fdb;
-	float graph_relative_set;
-	
 	float absolute_filt[3];
 }Angle_t;
+
+/* GM6020（大 pitch）控制状态：PID + 目标/使能/输出 收在一起 */
+typedef struct
+{
+    float  target_angle;          // 目标角度(°)
+    int16_t voltage;              // 双环算出的电压(-30000~30000)
+} Gm6020_Ctrl_t;
+
 /* 云台控制核心结构体：整个云台的状态全收在全局变量 gimbal 里。
  *   motor_set[2]           发给达妙电机的控制量 [0]=pitch [1]=yaw
  *   yaw/pitch_motor_fdb    两个达妙电机的反馈数据
@@ -356,7 +358,7 @@ typedef struct
  *   angle / gyro           角度 / 陀螺仪角速度
  *   chassis_set[3]         底盘速度指令 [X]=前后 [Y]=左右 [Z]=旋转
  *   super_power_mode       超功率开关
- *   reset_flag             复位标志
+ *   reset_flag             底盘复位标志
  *   right_click            鼠标右键按住标志(自瞄)
  *   shootvison_mode        发射视觉模式标志 */
 typedef struct
@@ -365,7 +367,8 @@ typedef struct
 	
 	DM_Motor_Info_Typedef yaw_motor_fdb;
 	DM_Motor_Info_Typedef pitch_motor_fdb;
-
+	
+	Gm6020_Ctrl_t gm6020;   //大 pitch(GM6020) 的控制状态
 	Robot_Behavior_e robot_mode_set;
 	Robot_Behavior_e robot_last_mode;
 	  
@@ -388,18 +391,15 @@ typedef struct
 
 	int8_t reset_flag;
 	uint8_t right_click;
-	uint8_t shootvison_mode ;
+	uint8_t shootvison_mode ;   
 }Gimbal_t;
 
 extern Gimbal_t gimbal;
 extern xQueueHandle CAN1_gimbal_Queue;
 
 /* GM6020 双环 PID 相关全局变量（定义在 Control_Task.c） */
-extern PID_Info_TypeDef gm6020_shell_pid;    // GM6020 外环 位置环 PID
-extern PID_Info_TypeDef gm6020_core_pid;     // GM6020 内环 速度环 PID
-extern volatile float  gm6020_target_angle;  // 目标角度(°)，Keil Watch 里改
-extern volatile uint8_t gm6020_enable;       // 使能开关：0=关(电压恒0，安全)，1=开
-extern int16_t gm6020_voltage;               // 双环算出的电压(-30000~30000)，CAN_Task 下发
+//extern PID_Info_TypeDef gm6020_shell_pid;    // GM6020 外环 位置环 PID
+//extern PID_Info_TypeDef gm6020_core_pid;     // GM6020 内环 速度环 PID
 
 
 extern void gimbal_task(void const *pvParameters);

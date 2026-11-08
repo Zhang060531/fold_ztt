@@ -22,6 +22,8 @@
 
 #include "bsp_uart.h"
 #include "INS_Task.h"
+#include "fdcan.h"
+#include "bsp_can.h"
 
 /* 外部引用：chassis 在 Control_Task.c 定义。ref_data 为孤立声明，勿依赖 */
 extern Chassis_Info_Typedef chassis;
@@ -35,9 +37,15 @@ extern Referee_System_Info_TypeDef ref_data;
  */
 void Test_Task(void const * argument)
 {
+//    /* ===== 临时：把这个编码器从 2 改回 1（跑成功一次后就删掉）===== */
+//    LegacyEncoder tmp;                        // 临时变量，不碰 g_enc 数组
+//    osDelay(1000);                            // 上电后等 1 秒
+//    LegacyEncoder_Init(&tmp, &hfdcan3, 2);    // 它现在真实ID是2
+//    LegacyEncoder_SetId(&tmp, 1);             // 发到2，改成1
+    /* ============================================================= */
 
-	while(1)   /* 功率拟合测试：发 9 通道给 VoFa+（4 电流 + 4 转速 + 1 实测功率） */
-	{
+    while(1)   /* 功率拟合测试：发 9 通道给 VoFa+（4 电流 + 4 转速 + 1 实测功率） */
+    {
 //		float vofa_data[9];
 //		vofa_data[0] = (float)chassis.chassis_motor_set[0].current_set;   // i1 电流指令
 //		vofa_data[1] = (float)chassis.chassis_motor_set[1].current_set;   // i2
@@ -49,15 +57,8 @@ void Test_Task(void const * argument)
 //		vofa_data[7] = (float)chassis.chassis_motor_fdb[3].Data.Velocity; // w4
 //		vofa_data[8] = chassis.super_power.curren_chassis_power;          // P 底盘实测功率 W
 //		USART_Vofa_Justfloat_Transmit_N(vofa_data, 9);
-		
-			
-			USART_Vofa_Justfloat_Transmit(Shoot_Motor.Data.Velocity ,0,0);
-    osDelay(1);		
 
-	}
+    //USART_Vofa_Justfloat_Transmit(Shoot_Motor.Data.Velocity ,0,0);
+        osDelay(1);
+    }
 }
-	
-
-
-
-

@@ -85,12 +85,12 @@ void Test_Task(void const * argument)
  * CH1: 目标角度(°)   CH2: 实际角度(°)
  * CH3: 目标转速(rpm) CH4: 实际转速(rpm)
  */
-		USART_Vofa_Justfloat_Transmit4(
-				gm6020_target_angle,               // CH1: 目标角度
-				GM6020_Motor.Data.Angle,           // CH2: 实际角度
-				gm6020_shell_pid.Output,           // CH3: 目标转速(=外环输出)
-				(float)GM6020_Motor.Data.Velocity  // CH4: 实际转速
-		);
+//		USART_Vofa_Justfloat_Transmit4(
+//				gimbal.gm6020.target_angle,               // CH1: 目标角度
+//				GM6020_Motor.Data.Angle,           // CH2: 实际角度
+//				gm6020_shell_pid.Output,           // CH3: 目标转速(=外环输出)
+//				(float)GM6020_Motor.Data.Velocity  // CH4: 实际转速
+//		);
 		osDelay(1);   /* 发送周期 1ms(1kHz)；若 VoFa 曲线抖动可改成 osDelay(2) */
 	}
 }

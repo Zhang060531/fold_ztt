@@ -60,16 +60,12 @@ PID_Info_TypeDef vision_core_pid[2];   // 视觉自瞄的「角速度环」PID
 int vision_flag = 0;            // 视觉模式标志（1=开视觉）
 PID_Info_TypeDef follow_pid, follow_pid2;  // 底盘跟随云台时用的 PID（算底盘旋转量）
 
-//GM6020 双环 PID：外环位置环 + 内环速度环 
-PID_Info_TypeDef gm6020_shell_pid;           // 外环 位置环（角度误差→目标转速rpm）
-PID_Info_TypeDef gm6020_core_pid;            // 内环 速度环（转速误差→电压）
-volatile float  gm6020_target_angle = 0.0f;  // 目标角度(°)，调试时在 Keil Watch 里改
-volatile uint8_t gm6020_enable = 0;          // 使能开关：0=关(电压恒0，安全)，1=开
-int16_t gm6020_voltage = 0;                  // 双环算出的电压，CAN_Task 里下发
+PID_Info_TypeDef gm6020_shell_pid;    // GM6020 外环 位置环 PID
+PID_Info_TypeDef gm6020_core_pid;     // GM6020 内环 速度环 PID
 
+uint8_t gm6020_locked = 0;
 
 float key_scale_factor = 2.0;   // 键盘控制底盘/云台时的速度系数
-uint8_t switchflag = 0;
 bool head_flag = HEAD;          // 云台当前朝向：车头(HEAD) 还是 车尾(TAIL)
 extern Image_Transmission_Info_TypeDef Image_Transmission_Info;  // 图传数据（外部定义）
 extern VT13_Info_TypeDef VT13_Info;    // VT13 图传遥控器数据（键鼠）
@@ -130,11 +126,13 @@ static void PitchPidCalc(Gimbal_t* pitch_pid_calc);
 static void YawPidCalc(Gimbal_t* yaw_pid_calc);
 
 static void GM6020PidCalc(void);
+static void FoldSet(void); 
 
 static void GimbalModeChangeControlTransit(Gimbal_t* gimbal_mode_change);
 static void addPitchAngle(Gimbal_t* pitch, float add);
 static void addYawAngle(Gimbal_t* yaw, float add);
-static void pidCalc(Gimbal_t* pid_calc, Axis_e axis);
+static void yawpidCalc(Gimbal_t* pid_calc, Axis_e axis);
+static void pitchpidCalc(Gimbal_t* pid_calc, Axis_e axis);
 static void TimeErrorCalc(Gimbal_t* gimbal);
 float ramp_speed(float last_speed, float target_speed, float max_step);
 void TransmitChassis_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame);
@@ -156,7 +154,8 @@ void Control_Task(void const *pvParameters)
         GimbalModeSet(&gimbal);         // 3. 根据遥控器设定云台工作模式
         ChassisModeSet(&gimbal);        // 4. 根据遥控器设定底盘跟随模式
         GimbalModeChangeControlTransit(&gimbal);  // 5. 模式切换时的角度平滑过渡
-			
+				
+				FoldSet();
 				//大pitch
 			  GM6020PidCalc();  							//GM6020双环pid算电压（角度-->电压）
 			  //小pitch
@@ -169,7 +168,6 @@ void Control_Task(void const *pvParameters)
         PitchPidCalc(&gimbal);          // 9. pitch 轴串级 PID 算力矩
         YawPidCalc(&gimbal);            // 10. yaw 轴串级 PID 算力矩
 			
-	
 				osDelay(1);                     // 延时 1ms，形成 1kHz 控制周期
     }
 }
@@ -299,7 +297,7 @@ static void GetDataFdb(Gimbal_t* gimbal_fdb)
     gimbal_fdb->time_last = gimbal_fdb->time_new;
     gimbal_fdb->time_new.model = xTaskGetTickCount();
 
-		//看函数返回值  覆盖？？？
+		//看函数返回值
     gimbal_fdb->time_new.gimbal[PITCH] = GetPitchMotorFdb(&(gimbal_fdb->pitch_motor_fdb));
     gimbal_fdb->time_new.gimbal[YAW] = GetYawMotorFdb(&(gimbal_fdb->yaw_motor_fdb));
     gimbal_fdb->time_new.gimbal[PITCH] = GetMotorPitchRelativeAngle(&(gimbal_fdb->angle.relative_fdb[PITCH]));
@@ -388,30 +386,31 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
     gimbal_mode_set->motor_last_mode[YAW] = gimbal_mode_set->motor_mode[YAW];
 		
 
-    static  uint16_t REF_key_robot_mode = 0;
-    static  uint16_t REF_key_robot_mode_last = 0;
-    static int8_t REF_mouse_right = 0;
-    static int8_t REF_mouse_right_last = 0;
-    static int8_t REF_mouse_middle = 0;
-    static int8_t REF_mouse_middle_last = 0;
-		
+//    static  uint16_t REF_key_robot_mode = 0;
+//    static  uint16_t REF_key_robot_mode_last = 0;
+//    static int8_t REF_mouse_right = 0;
+//    static int8_t REF_mouse_right_last = 0;
+//    static int8_t REF_mouse_middle = 0;
+//    static int8_t REF_mouse_middle_last = 0;
+//		
 
-    REF_key_robot_mode_last = REF_key_robot_mode ;
-    REF_key_robot_mode = VT13_Info.Key.V;      // 【图传VT13】键盘
-    REF_mouse_right_last = REF_mouse_right;
-    REF_mouse_right = VT13_Info.Mouse.Press_R; // 【图传VT13】鼠标右键
-    REF_mouse_middle_last = REF_mouse_middle;
-    ui_rotate_mode_last = ui_rotate_mode;
-    REF_mouse_middle = VT13_Info.Mouse.Press_M;// 【图传VT13】鼠标中键
-    ui_rotate_mode = VT13_Info.RC.Left  ;      // 【图传VT13】左键(旋转模式开关)
-    pause_last = pause;
-    pause = VT13_Info.RC.Stop;                 // 【图传VT13】停止键(切零力)
+//    REF_key_robot_mode_last = REF_key_robot_mode ;
+//    REF_key_robot_mode = VT13_Info.Key.V;      // 【图传VT13】键盘
+//    REF_mouse_right_last = REF_mouse_right;
+//    REF_mouse_right = VT13_Info.Mouse.Press_R; // 【图传VT13】鼠标右键
+//    REF_mouse_middle_last = REF_mouse_middle;
+//    ui_rotate_mode_last = ui_rotate_mode;
+//    REF_mouse_middle = VT13_Info.Mouse.Press_M;// 【图传VT13】鼠标中键
+//    ui_rotate_mode = VT13_Info.RC.Left  ;      // 【图传VT13】左键(旋转模式开关)
+//    pause_last = pause;
+//    pause = VT13_Info.RC.Stop;                 // 【图传VT13】停止键(切零力)
 
-    if (((REF_key_robot_mode & KEY_PRESSED_OFFSET_Z) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_Z) == 0) || (pause == 1 && pause_last == 0))
-    {
-        UI_force_mode++;
-        UI_force_mode = UI_force_mode % 2;
-    }
+//    if (((REF_key_robot_mode & KEY_PRESSED_OFFSET_Z) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_Z) == 0) || (pause == 1 && pause_last == 0))
+//    {
+//        UI_force_mode++;
+//        UI_force_mode = UI_force_mode % 2;
+//    }
+
 
 		//改 
 		//s[1]=1 无力
@@ -422,75 +421,70 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
 			gimbal_mode_set->robot_mode_set = ZERO_FORCE_MODE;
 			gimbal_mode_set->motor_mode[YAW] = RELATIVE_MODE;
 			gimbal_mode_set->motor_mode[PITCH] = RELATIVE_MODE;
-			gm6020_enable = 0; 
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+			
 		}
 		else if(remote_ctrl.rc.s[1] == 3)
 		{
-			gimbal_mode_set->robot_mode_set = NORMAL_MODE;
+			gimbal_mode_set->robot_mode_set = EXTEND_MODE;
 			gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;   
       gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;     
-			gm6020_enable = 1;
-			gm6020_target_angle = GM6020_FOLD_ANGLE;
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
 		}
 		else if(remote_ctrl.rc.s[1] == 2)
 		{
-			gimbal_mode_set->robot_mode_set = ZERO_FORCE_MODE;
-        gimbal_mode_set->motor_mode[PITCH] = RELATIVE_MODE;
-        gimbal_mode_set->motor_mode[YAW] = RELATIVE_MODE;
-        gm6020_enable = 1;
-				gm6020_target_angle = GM6020_FOLD_ANGLE;
+			gimbal_mode_set->robot_mode_set = FOLD_MODE;
+      gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;
+      gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;
 		}
 		
-    if (((REF_key_robot_mode & KEY_PRESSED_OFFSET_SHIFT) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_SHIFT) == 0)||(ui_rotate_mode == 1 && ui_rotate_mode_last == 0))
-    {
-        Key_ctrl_flag++;
-        if (Key_ctrl_flag == 1)
-        {
-            vision_flag = 1;
-            gimbal_mode_set->chassis_mode = CHASSIS_ROTATE_MODE;
-        }
-        else if (Key_ctrl_flag == 2)
-        {
-            gimbal_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
-            Key_ctrl_flag = 0;
-            vision_flag = 0;
-        }
-        else
-        {
-            vision_flag = 0;
-            gimbal_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
-        }
-    }
-		
-    if ((REF_key_robot_mode & KEY_PRESSED_OFFSET_R) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_R) == 0)
-    {
-        Key_r_flag++;
-        if (Key_r_flag == 1)
-        {
-            gimbal_mode_set->chassis_mode = CHASSIS_NO_FOLLOW_GIMBAL_MODE;
-        }
-        else if (Key_r_flag == 2)
-        {
-            gimbal_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
-            Key_r_flag = 0;
-        }
-        else
-        {
-					gimbal_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
-        }
-    }
-		
+//    if (((REF_key_robot_mode & KEY_PRESSED_OFFSET_SHIFT) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_SHIFT) == 0)||(ui_rotate_mode == 1 && ui_rotate_mode_last == 0))
+//    {
+//        Key_ctrl_flag++;
+//        if (Key_ctrl_flag == 1)
+//        {
+//            vision_flag = 1;
+//            gimbal_mode_set->chassis_mode = CHASSIS_ROTATE_MODE;
+//        }
+//        else if (Key_ctrl_flag == 2)
+//        {
+//            gimbal_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
+//            Key_ctrl_flag = 0;
+//            vision_flag = 0;
+//        }
+//        else
+//        {
+//            vision_flag = 0;
+//            gimbal_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
+//        }
+//    }
+//		
+//    if ((REF_key_robot_mode & KEY_PRESSED_OFFSET_R) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_R) == 0)
+//    {
+//        Key_r_flag++;
+//        if (Key_r_flag == 1)
+//        {
+//            gimbal_mode_set->chassis_mode = CHASSIS_NO_FOLLOW_GIMBAL_MODE;
+//        }
+//        else if (Key_r_flag == 2)
+//        {
+//            gimbal_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
+//            Key_r_flag = 0;
+//        }
+//        else
+//        {
+//					gimbal_mode_set->chassis_mode = CHASSIS_FOLLOW_GIMBAL_MODE;
+//        }
+//    }
+//		
 
-    if ((REF_key_robot_mode & KEY_PRESSED_OFFSET_Q) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_Q) == 0)
-    {
-        remote_ctrl.rc.s[0] = 0;
-        remote_ctrl.rc.s[1] = 0;
-    }
+//    if ((REF_key_robot_mode & KEY_PRESSED_OFFSET_Q) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_Q) == 0)
+//    {
+//        remote_ctrl.rc.s[0] = 0;
+//        remote_ctrl.rc.s[1] = 0;
+//    }
 		
 		//自瞄
-    if (REF_mouse_right == 1||VT13_Info.RC.Switch==2 || remote_ctrl.rc.s[0] == 2)
+//    if (REF_mouse_right == 1||VT13_Info.RC.Switch==2 || remote_ctrl.rc.s[0] == 2)
+		if (remote_ctrl.rc.s[0] == 2)
     {
         gimbal_mode_set->motor_mode[YAW] = VISION_MODE;
         gimbal_mode_set->motor_mode[PITCH] = VISION_MODE;
@@ -576,6 +570,47 @@ static void GimbalModeChangeControlTransit(Gimbal_t* mode_change)
     }
 }
 
+static void FoldSet()
+{
+		if(remote_ctrl.rc.s[1] == 1)
+		{
+			HAL_GPIO_WritePin(GPIOA,GPIO_PIN_0,GPIO_PIN_SET);
+			gm6020_locked = 0;
+			return;
+		}
+		else if(remote_ctrl.rc.s[1] == 3)
+		{
+				gimbal.gm6020.target_angle = GM6020_EXTEND_ANGLE;
+		}
+		else if(remote_ctrl.rc.s[1] == 2)
+		{
+				gimbal.gm6020.target_angle = GM6020_FOLD_ANGLE;
+		}
+		else
+		{			
+		  	gimbal.gm6020.target_angle = GM6020_Motor.Data.Angle;
+		}
+		
+		float err = fabsf(gimbal.gm6020.target_angle - GM6020_Motor.Data.Angle);
+		
+		if(gm6020_locked)
+		{
+			if(err > GM6020_UNLOCK_DEADBAND)
+			{
+				HAL_GPIO_WritePin(GPIOA,GPIO_PIN_0,GPIO_PIN_SET);  //松开
+				gm6020_locked = 0;
+			}
+			else
+			{
+					if(err < GM6020_LOCK_DEADBAND)
+					{
+						HAL_GPIO_WritePin(GPIOA,GPIO_PIN_0,GPIO_PIN_RESET);
+						gm6020_locked = 1;
+						gimbal.gm6020.target_angle = GM6020_Motor.Data.Angle;
+					}
+			}
+		}
+}
 /**
  * @brief 计算俯仰轴(pitch)的目标角度
  * @note  普通模式：把遥控器 ch[1] 摇杆 + 鼠标 Y 轴 的输入累加成角度增量。
@@ -591,16 +626,9 @@ static void PitchAngleRefSet(Gimbal_t* angle_set)
         return;
     }
 
-    else if (angle_set->robot_mode_set == NORMAL_MODE)
+    else if (angle_set->robot_mode_set == EXTEND_MODE)
     {   
-			  //新增 收缩模式小pitch保持水平
-				if(remote_ctrl.rc.s[1] == 2)
-				{
-					angle_set->angle.absolute_set[PITCH] = PITCH_LEVEL_ANGLE;
-					pitch_ref_vel = 0.0f;
-				}
-				else
-				{
+
         // 俯仰目标角增量 = 摇杆输入 之和：【DT7】ch[1](右摇杆上下) + 【DT7】mouse.y(鼠标Y)
         //                               +【图传VT13】Channel[1] +【图传VT13】Mouse.
         add_angle = -(float)remote_ctrl.rc.ch[1] / CHANNEL_PITCH_SCALE_FACTOR - (float)VT13_Info.RC.Channel[1] / CHANNEL_PITCH_SCALE_FACTOR - (float)remote_ctrl.mouse.y / MOUSE_SCALE_FACTOR - VT13_Info.Mouse.Y / MOUSE_SCALE_FACTOR;
@@ -609,7 +637,11 @@ static void PitchAngleRefSet(Gimbal_t* angle_set)
         //【新增】速度前馈：把本周期角度增量换算成参考角速度(°/s)。
         //        addPitchAngle 传的是 -add_angle，所以实际增量是 -add_angle，参考速度也跟着取反。
         pitch_ref_vel = -add_angle / GIMBAL_CONTROL_PERIOD_S;
-			  }
+    }
+		else if (angle_set->robot_mode_set == FOLD_MODE)
+    {   
+					angle_set->angle.absolute_set[PITCH] = PITCH_LEVEL_ANGLE;
+					pitch_ref_vel = 0.0f;
     }
     else if (angle_set->robot_mode_set == VISION_FOLLOW)
     {
@@ -633,7 +665,7 @@ static void YawAngleRefSet(Gimbal_t* angle_set)
         return;
     }
 
-    else if (angle_set->robot_mode_set == NORMAL_MODE)
+    else if (angle_set->robot_mode_set == EXTEND_MODE)
     {
 				//调试发现将 VT13_Info.RC.Channel[0]改个正负 左推摇杆 车（云台+底盘）右转
         // 偏航目标角增量 = 摇杆输入 之和：【DT7】ch[0](右摇杆左右) +【图传VT13】Wheel(滚轮)
@@ -643,6 +675,15 @@ static void YawAngleRefSet(Gimbal_t* angle_set)
 
         addYawAngle(angle_set, add_angle);
 				
+        //【新增】速度前馈：把本周期角度增量换算成参考角速度(°/s)。
+        //        增量(°/周期) ÷ 周期(s) = 角速度(°/s)，供 pidCalc 前馈到内环速度设定。
+        yaw_ref_vel = add_angle / GIMBAL_CONTROL_PERIOD_S;
+    }
+		 else if (angle_set->robot_mode_set == FOLD_MODE)
+    {
+        add_angle = -(float)remote_ctrl.rc.ch[0] / (float)CHANNEL_YAW_SCALE_FACTOR - (float)VT13_Info.RC.Wheel / CHANNEL_YAW_SCALE_FACTOR - (VT13_Info.RC.Channel[0]) / CHANNEL_YAW_SCALE_FACTOR - VT13_Info.Mouse.X /  MOUSE_SCALE_FACTOR;
+
+        addYawAngle(angle_set, add_angle);
 				
         //【新增】速度前馈：把本周期角度增量换算成参考角速度(°/s)。
         //        增量(°/周期) ÷ 周期(s) = 角速度(°/s)，供 pidCalc 前馈到内环速度设定。
@@ -846,13 +887,18 @@ static void PitchPidCalc(Gimbal_t* pitch_pid_calc)
         pitch_pid_calc->motor_set[PITCH].Torque = 0;
     }
 
-    else if (pitch_pid_calc->robot_mode_set == NORMAL_MODE)
+    else if (pitch_pid_calc->robot_mode_set == EXTEND_MODE)
     {
-        pidCalc(pitch_pid_calc, PITCH);
+        pitchpidCalc(pitch_pid_calc, PITCH);
+    }
+		
+		else if (pitch_pid_calc->robot_mode_set == FOLD_MODE)
+    {
+        pitchpidCalc(pitch_pid_calc, PITCH);
     }
     else if (pitch_pid_calc->robot_mode_set == VISION_FOLLOW)
     {
-        pidCalc(pitch_pid_calc, PITCH);
+        pitchpidCalc(pitch_pid_calc, PITCH);
     }
 }
 /**
@@ -868,13 +914,18 @@ static void YawPidCalc(Gimbal_t* yaw_pid_calc)
         yaw_pid_calc->motor_set[YAW].Torque = 0;
     }
 
-    else if (yaw_pid_calc->robot_mode_set == NORMAL_MODE)
+    else if (yaw_pid_calc->robot_mode_set == EXTEND_MODE)
     {
-        pidCalc(yaw_pid_calc, YAW);
+        yawpidCalc(yaw_pid_calc, YAW);
+    }
+		
+		else if (yaw_pid_calc->robot_mode_set == FOLD_MODE)
+    {
+        yawpidCalc(yaw_pid_calc, YAW);
     }
     else if (yaw_pid_calc->robot_mode_set == VISION_FOLLOW)
     {
-        pidCalc(yaw_pid_calc, YAW);
+        yawpidCalc(yaw_pid_calc, YAW);
     }
 }
 
@@ -930,10 +981,8 @@ float Pitch_set = 0, Yaw_set = 0;
  *        视觉模式额外做了：超时保护(500ms 丢视觉自动退到绝对模式)、
  *        速度前馈(vision_target_vel)、旋转靶预测补偿。
  */
-static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
+static void yawpidCalc(Gimbal_t* pid_calc, Axis_e axis)
 {
-    
-    
     float angle_set = 0.0f;
     uint32_t current_time = HAL_GetTick();
     uint32_t data_timeout = current_time - vision_last_valid_time[axis];
@@ -984,7 +1033,83 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
 
                 pid_calc->motor_set[axis].Torque = PID_Calculate(&vision_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
             }
-            else if (axis == PITCH)
+        }
+    }
+
+    
+    if (pid_calc->motor_mode[axis] == ABSOLUTE_MODE)
+    {
+        if (axis == YAW)
+        {
+            if (pid_calc->chassis_mode == CHASSIS_NO_FOLLOW_GIMBAL_MODE)
+            {
+                pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], 0, pid_calc->angle.relative_fdb[axis]);
+            }
+            else
+            {
+                angle_set = PreventFullCircleConstrain(pid_calc->angle.absolute_set[axis], pid_calc->angle.absolute_fdb[axis]);
+                //【新增】速度前馈：角度环输出 + 参考角速度×增益，直接喂给内环速度设定。
+                //        摇杆一动，内环立刻拿到目标速度，不用等角度误差慢慢累积，响应更快。
+                pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.absolute_fdb[axis])
+                                         + yaw_vel_ff_gain * yaw_ref_vel;
+            }
+            pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
+        }
+    }
+
+    
+    else if (pid_calc->motor_mode[axis] == RELATIVE_MODE)
+    {
+        if (axis == YAW)
+        {
+            angle_set = PreventFullCircleConstrain(pid_calc->angle.relative_set[axis], pid_calc->angle.relative_fdb[axis]);
+            //【新增】速度前馈：同绝对模式，角度环输出 + 参考角速度×增益喂给内环速度设定
+            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.relative_fdb[axis])
+                                     + yaw_vel_ff_gain * yaw_ref_vel;
+            pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
+        }
+    }
+}
+/**
+ * @brief 串级 PID 核心计算（pitch/yaw 通用，axis 区分）
+ * @note  双环串级：外环角度环(gimbal_shell_pid/vision_shell_pid)算出目标角速度，
+ *        内环角速度环(gimbal_core_pid/vision_core_pid)算出最终力矩。
+ *        三种电机模式：
+ *         - VISION_MODE  视觉自瞄：目标角度 = 视觉偏移 + 手动设定，走 vision_* PID
+ *         - ABSOLUTE_MODE 绝对模式：以 IMU 绝对角度为反馈，走 gimbal_* PID
+ *         - RELATIVE_MODE 相对模式：以电机相对角度为反馈，走 gimbal_* PID
+ *        视觉模式额外做了：超时保护(500ms 丢视觉自动退到绝对模式)、
+ *        速度前馈(vision_target_vel)、旋转靶预测补偿。
+ */
+static void pitchpidCalc(Gimbal_t* pid_calc, Axis_e axis)
+{
+    float angle_set = 0.0f;
+    uint32_t current_time = HAL_GetTick();
+    uint32_t data_timeout = current_time - vision_last_valid_time[axis];
+		
+    // ================== 1. 视觉模式(自瞄) ==================
+    // 「云台怎么跟上目标」的核心就在这：
+    //   妙算发来目标应指向的角度 vision_x/y_offect(度) → 加上手动修正 Yaw/Pitch_set
+    //   → 得到目标绝对角度 → 外环角度环PID(算出目标角速度) → 内环角速度环PID(算出力矩)
+    //   → 力矩发给达妙电机，云台就转过去对准目标。
+    //   视觉把 offset 算得越准、PID 越跟手，枪口就越稳地咬住目标。
+    if (pid_calc->motor_mode[axis] == VISION_MODE)
+    {
+        if (data_timeout > VISION_DATA_TIMEOUT_MS)
+        {
+            pid_calc->motor_mode[axis] = ABSOLUTE_MODE;
+            pid_calc->angle.absolute_set[axis] = pid_calc->angle.absolute_fdb[axis];
+            vision_target_vel[axis] = 0;   // 超时清零速度估计
+        }
+        else
+        {
+            // --- 视觉目标速度获取（已在Vision_Info_Update中以视觉帧率从原始数据计算）---
+            vision_target_vel[axis] = LowPassFilter1p_Update(&vision_vel_lpf[axis],
+                (axis == YAW) ? pid_calc->vision_data.vision_vel_x
+                              : pid_calc->vision_data.vision_vel_y);
+            // -----------------------------------------
+
+            if (axis == PITCH)
             {
                 // 预测补偿：旋转靶外推视觉偏移到当前时刻
                 float pitch_offset = pid_calc->vision_data.vision_y_offect;
@@ -1013,22 +1138,6 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
                                      + pitch_vel_ff_gain * pitch_ref_vel;
             pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
         }
-        else if (axis == YAW)
-        {
-            if (pid_calc->chassis_mode == CHASSIS_NO_FOLLOW_GIMBAL_MODE)
-            {
-                pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], 0, pid_calc->angle.relative_fdb[axis]);
-            }
-            else
-            {
-                angle_set = PreventFullCircleConstrain(pid_calc->angle.absolute_set[axis], pid_calc->angle.absolute_fdb[axis]);
-                //【新增】速度前馈：角度环输出 + 参考角速度×增益，直接喂给内环速度设定。
-                //        摇杆一动，内环立刻拿到目标速度，不用等角度误差慢慢累积，响应更快。
-                pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.absolute_fdb[axis])
-                                         + yaw_vel_ff_gain * yaw_ref_vel;
-            }
-            pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
-        }
     }
 
     
@@ -1042,14 +1151,7 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
                                      + pitch_vel_ff_gain * pitch_ref_vel;
             pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
         }
-        else if (axis == YAW)
-        {
-            angle_set = PreventFullCircleConstrain(pid_calc->angle.relative_set[axis], pid_calc->angle.relative_fdb[axis]);
-            //【新增】速度前馈：同绝对模式，角度环输出 + 参考角速度×增益喂给内环速度设定
-            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.relative_fdb[axis])
-                                     + yaw_vel_ff_gain * yaw_ref_vel;
-            pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
-        }
+        
     }
 }
 
@@ -1061,25 +1163,19 @@ static void pidCalc(Gimbal_t* pid_calc, Axis_e axis)
  */
 static void GM6020PidCalc(void)
 {
-    float angle_set;
-    float target_rpm;
-
-    if (gm6020_enable == 0)   // 没使能：电压归零，并清空 PID 状态，避免使能瞬间猛推
+    if (gimbal.robot_mode_set == ZERO_FORCE_MODE || gm6020_locked)
     {
-        gm6020_voltage = 0;
-        PID_Calc_Clear(&gm6020_shell_pid);
-        PID_Calc_Clear(&gm6020_core_pid);
+        gimbal.gm6020.voltage = 0;
         return;
-    }
-
+    }		
     // 防止目标角度和反馈角度跨 ±180° 绕大圈（走最短的近路）
-    angle_set = PreventFullCircleConstrain(gm6020_target_angle, GM6020_Motor.Data.Angle);
+    float angle_set = PreventFullCircleConstrain(gimbal.gm6020.target_angle, GM6020_Motor.Data.Angle);
 
     // 外环 位置环：角度误差 → 目标转速(rpm)
-    target_rpm = PID_Calculate(&gm6020_shell_pid, angle_set, GM6020_Motor.Data.Angle);
+    float target_rpm = PID_Calculate(&gm6020_shell_pid, angle_set, GM6020_Motor.Data.Angle);
 
     // 内环 速度环：转速误差 → 电压
-    gm6020_voltage = (int16_t)PID_Calculate(&gm6020_core_pid, target_rpm, (float)GM6020_Motor.Data.Velocity);
+    gimbal.gm6020.voltage = (int16_t)PID_Calculate(&gm6020_core_pid, target_rpm, (float)GM6020_Motor.Data.Velocity);
 }
 
 
@@ -1144,7 +1240,7 @@ void TransmitChassis_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame)
     Data_chassis[1] = gimbal.chassis_set[CHASSIS_Y] * 1000;
     Data_chassis[2] = gimbal.chassis_set[CHASSIS_Z] * 1000;
     Data_chassis[3] = gimbal.reset_flag;
-
+ 
     FDCAN_TxFrame->Header.Identifier = 0x21;
     FDCAN_TxFrame->Data[0] = (uint8_t)(Data_chassis[0] >> 8);
     FDCAN_TxFrame->Data[1] = (uint8_t)Data_chassis[0];

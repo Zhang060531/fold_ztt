@@ -13,6 +13,7 @@
 ".\chassis\minipc.o"
 ".\chassis\bmi088.o"
 ".\chassis\ws2812.o"
+".\chassis\legacy_encoder.o"
 ".\chassis\bsp_can.o"
 ".\chassis\bsp_uart.o"
 ".\chassis\bsp_adc.o"

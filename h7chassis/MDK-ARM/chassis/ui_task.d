@@ -42,7 +42,8 @@
   ..\Components\Device\Inc\Referee_System.h \
   ..\Application\Task\Inc\Control_Task.h \
   ..\Components\Device\Inc\Motor.h ..\Application\Task\Inc\config.h \
-  ..\BSP\Inc\bsp_can.h ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
+  ..\BSP\Inc\bsp_can.h ..\Components\Device\Inc\legacy_encoder.h \
+  ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
   ..\Drivers\CMSIS\Include\cmsis_compiler.h \
   ..\Components\Algorithm\Inc\RLS.h ..\Components\RMUI\Inc\ui.h \
   ..\Components\RMUI\Inc\ui_interface.h \

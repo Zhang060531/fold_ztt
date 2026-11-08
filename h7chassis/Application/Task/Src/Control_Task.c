@@ -99,8 +99,8 @@ void Control_Task(void const * argument)
         Check_All_Motors_Offline();      /* 第1步：检测电机离线，离线电机电流清零 */
 
         FdbUpdate(&chassis);             /* 第2步：读取全部反馈 */
-/* 下面这段注释掉的代码是「直接用遥控器摇杆控制底盘」的旧写法，
- * 现在底盘速度设定改由云台通过 CAN 0x21 帧下发（见 FdbUpdate 里的 GetChassisXSpeedSet 等）。 */
+
+//  现在底盘速度设定改由云台通过 CAN 0x21 帧下发（见 FdbUpdate 里的 GetChassisXSpeedSet 等）。
 //        chassis.chassis_xyz_set[CHASSIS_X] = remote_ctrl.rc.ch[2] * 0.014;
 //        chassis.chassis_xyz_set[CHASSIS_Y] = remote_ctrl.rc.ch[3] * 0.014;
 //        chassis.chassis_xyz_set[CHASSIS_Z] = -remote_ctrl.rc.ch[0] * 0.01;
@@ -110,7 +110,6 @@ void Control_Task(void const * argument)
         Slope_Compensation_Update(&chassis);   /* 第3步：坡度补偿系数更新 */
 
         CHASSIS_Single_Loop_Out();             /* 第4步：麦轮解算 + 速度环 PID，得到电流指令 */
-
 
 				PowerLimit(&chassis);                    /* 第5步：功率限幅（超电策略 + 拉格朗日电流分配） */
 

@@ -39,7 +39,8 @@
   ..\Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS_V2\cmsis_os.h \
   ..\Drivers\CMSIS\RTOS2\Include\cmsis_os2.h \
   ..\Components\Device\Inc\Motor.h ..\Application\Task\Inc\config.h \
-  ..\BSP\Inc\bsp_can.h ..\Application\Task\Inc\Control_Task.h \
+  ..\BSP\Inc\bsp_can.h ..\Components\Device\Inc\legacy_encoder.h \
+  ..\Application\Task\Inc\Control_Task.h \
   ..\Components\Device\Inc\Referee_System.h \
   ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
   ..\Drivers\CMSIS\Include\cmsis_compiler.h \
