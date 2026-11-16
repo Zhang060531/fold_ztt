@@ -37,10 +37,10 @@
   ..\Drivers\STM32H7xx_HAL_Driver\Inc\stm32h7xx_hal_pcd.h \
   ..\Drivers\STM32H7xx_HAL_Driver\Inc\stm32h7xx_ll_usb.h \
   ..\Drivers\STM32H7xx_HAL_Driver\Inc\stm32h7xx_hal_pcd_ex.h \
+  ..\Core\Inc\fdcan.h ..\Core\Inc\main.h \
   ..\Components\Device\Inc\legacy_encoder.h ..\BSP\Inc\bsp_pwm.h \
-  ..\Core\Inc\tim.h ..\Core\Inc\main.h ..\BSP\Inc\bsp_uart.h \
-  ..\BSP\Inc\bsp_adc.h ..\Core\Inc\adc.h \
-  ..\Components\Device\Inc\bmi088.h \
+  ..\Core\Inc\tim.h ..\BSP\Inc\bsp_uart.h ..\BSP\Inc\bsp_adc.h \
+  ..\Core\Inc\adc.h ..\Components\Device\Inc\bmi088.h \
   ..\Components\Device\Inc\bmi088_reg.h ..\USB_DEVICE\App\usb_device.h \
   ..\Middlewares\ST\STM32_USB_Device_Library\Core\Inc\usbd_def.h \
   ..\USB_DEVICE\Target\usbd_conf.h

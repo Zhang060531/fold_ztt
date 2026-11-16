@@ -268,7 +268,7 @@ static BMI088_Status_e BMI088_Gyro_Init(void)
 }
 
 /* 陀螺仪零偏标定开关：1=上电采样 5000 次求均值自标定；0=使用下面写死的零偏常量 */
-#define IMU_Calibration_ENABLE  1U
+#define IMU_Calibration_ENABLE  0U
 
 /**
   * @brief  更新/设定陀螺仪零偏(Offsets_Gyro_X/Y/Z)

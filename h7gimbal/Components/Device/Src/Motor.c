@@ -80,7 +80,7 @@ DJI_Motor_Info_Typedef Shoot_Motor = {
 DJI_Motor_Info_Typedef GM6020_Motor = {
     .Type = DJI_GM6020,
     .FDCANFrame = {
-        .TxIdentifier = 0x2ff,   // 下发：电压指令
+        .TxIdentifier = 0x2fe,   // 下发：电压指令
         .RxIdentifier = 0x209,   // 回传：编码器/转速/电流/温度
     }
 };
@@ -91,8 +91,8 @@ DM_Motor_Info_Typedef DM_4310_Motor[2]= {
         .Control_Mode = MIT,         // MIT 阻抗控制模式
         .Param_Range = {
             .P_MAX = 12.5f,          // 位置量程 ±12.5 rad（pitch 俯仰，约 4 圈）
-            .V_MAX = 30.f,           // 速度量程 ±30 rad/s
-            .T_MAX = 10.f            // 力矩量程 ±10 N·m
+            .V_MAX = 10.f,           // 速度量程 ±30 rad/s
+            .T_MAX = 28.f            // 力矩量程 ±10 N·m
         },
         .FDCANFrame = {
             .TxIdentifier = 0x01,    // 下发：pitch 电机控制帧
@@ -126,7 +126,7 @@ float filter_sht(float temp,float alpha);
 void ConstrainLoop(float* output, float input, float min, float max);
 void TransmitFriMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2);
 void TransmitShootMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t shoot_current);
-
+void TransmitGM6020Current(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t Current);
 /* Helper conversion functions */
 static int16_t float_to_int16(float value, float scale)
 {
@@ -357,6 +357,20 @@ void TransmitGM6020Voltage(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t voltage)
     FDCAN_TxFrame->Data[0] = (uint8_t)(voltage >> 8);   // 电压高 8 位
     FDCAN_TxFrame->Data[1] = (uint8_t)voltage;          // 电压低 8 位
     FDCAN_TxFrame->Data[2] = 0;   // 其余 6 字节清零：本工程没有 ID6~8，别误发垃圾电压
+    FDCAN_TxFrame->Data[3] = 0;
+    FDCAN_TxFrame->Data[4] = 0;
+    FDCAN_TxFrame->Data[5] = 0;
+    FDCAN_TxFrame->Data[6] = 0;
+    FDCAN_TxFrame->Data[7] = 0;
+    USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);
+}
+// 0x2FF 一条帧带 4 个电机(ID5~8)，每个占 2 字节；本工程只有 ID=5，用 Data[0]/Data[1]。
+void TransmitGM6020Current(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t Current)
+{
+    FDCAN_TxFrame->Header.Identifier = GM6020_Motor.FDCANFrame.TxIdentifier;
+    FDCAN_TxFrame->Data[0] = (uint8_t)(Current >> 8);   
+    FDCAN_TxFrame->Data[1] = (uint8_t)Current;         
+    FDCAN_TxFrame->Data[2] = 0;  
     FDCAN_TxFrame->Data[3] = 0;
     FDCAN_TxFrame->Data[4] = 0;
     FDCAN_TxFrame->Data[5] = 0;

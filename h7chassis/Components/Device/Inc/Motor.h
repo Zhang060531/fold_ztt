@@ -50,6 +50,9 @@
 #define MOTOR_OFFLINE_TIMEOUT 100
 
 
+#define STEER_MOTOR_ID_MIN 1
+#define STEER_MOTOR_ID_MAX 4
+
 /**
  * @brief 大疆经典 CAN 电机型号
  * @note  GM6020: 云台 yaw/pitch 电机(带编码器); M3508: 底盘动力电机;
@@ -197,6 +200,9 @@ typedef struct
 
 /* Externs ------------------------------------------------------------------*/
 extern DJI_Motor_Info_Typedef Shoot_Motor,Chassis_Motor[4];
+
+extern DJI_Motor_Info_Typedef Steer_Motor[4];
+
 extern DM_Motor_Info_Typedef DM_4310_Motor[1];
 extern DM_Motor_Contorl_Info_Typedef DM_Motor_Contorl_Info[4];
 

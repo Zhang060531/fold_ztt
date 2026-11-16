@@ -43,7 +43,15 @@ DJI_Motor_Info_Typedef Shoot_Motor =
     .FDCANFrame = { .TxIdentifier = 0x1ff, .RxIdentifier = 0x205, }
 };
 
-/* 底盘 4 个动力电机(M3508), 同发 0x200, 分别收 0x201~0x204 */
+// 舵轮电机(M3508), 同发 0x200, 分别收 0x201~0x204          放CAN2
+DJI_Motor_Info_Typedef Steer_Motor[4] = {
+    [0] = { .Type = DJI_M3508, .FDCANFrame = { .TxIdentifier = 0x200, .RxIdentifier = 0x201, } },
+    [1] = { .Type = DJI_M3508, .FDCANFrame = { .TxIdentifier = 0x200, .RxIdentifier = 0x202, } },
+    [2] = { .Type = DJI_M3508, .FDCANFrame = { .TxIdentifier = 0x200, .RxIdentifier = 0x203, } },
+    [3] = { .Type = DJI_M3508, .FDCANFrame = { .TxIdentifier = 0x200, .RxIdentifier = 0x204, } },
+};
+
+// 底盘 4 个轮电机(M3508), 同发 0x200, 分别收 0x201~0x204    放CAN1
 DJI_Motor_Info_Typedef Chassis_Motor[4] = {
     [0] = { .Type = DJI_M3508, .FDCANFrame = { .TxIdentifier = 0x200, .RxIdentifier = 0x201, } },
     [1] = { .Type = DJI_M3508, .FDCANFrame = { .TxIdentifier = 0x200, .RxIdentifier = 0x202, } },
@@ -133,7 +141,8 @@ float DJI_Motor_Encoder_To_Angle(DJI_Motor_Data_Typedef *Data,float torque_ratio
 {    
     float Encoder_Err = 0.f;
     if(Data->Initlized != true) {
-        Data->Last_Encoder = Data->Encoder; Data->Angle = Data->Encoder/(MAXEncoder*torque_ratio)*360.f; Data->Initlized = true;
+        Data->Last_Encoder = Data->Encoder;
+  			Data->Angle = Data->Encoder/(MAXEncoder*torque_ratio)*360.f; Data->Initlized = true;
     }
     Encoder_Err = Data->Encoder - Data->Last_Encoder;
     if(Encoder_Err > MAXEncoder*0.5f) { Data->Angle += (float)(Encoder_Err - MAXEncoder)/(MAXEncoder*torque_ratio)*360.f; }
@@ -356,7 +365,7 @@ void Check_All_Motors_Offline(void)
 {
     uint32_t current_time = xTaskGetTickCount();
 
-    /* 1. 检测 DJI 轮向电机 (Chassis) 与 发射机构电机 (Shoot) */
+    //检测轮向电机
     for(int i = 0; i < 4; i++) {
         if((current_time - Chassis_Motor[i].Motor_time) > MOTOR_OFFLINE_TIMEOUT) {
             Chassis_Motor[i].is_offline = true;
@@ -364,16 +373,22 @@ void Check_All_Motors_Offline(void)
             Chassis_Motor[i].is_offline = false;
         }
     }
-    
+		//检测舵向电机
+    for(int i = 0; i < 4; i++) {
+        if((current_time - Steer_Motor[i].Motor_time) > MOTOR_OFFLINE_TIMEOUT) {
+            Steer_Motor[i].is_offline = true;
+        } else {
+            Steer_Motor[i].is_offline = false;
+        }
+    }
+		//检测拨盘电机
     if((current_time - Shoot_Motor.Motor_time) > MOTOR_OFFLINE_TIMEOUT) {
         Shoot_Motor.is_offline = true;
     } else {
         Shoot_Motor.is_offline = false;
     }
 
-
-
-    /* 3. 检测 DM 达妙电机 (Yaw) */
+    //检测 DM 达妙电机 (Yaw)
     if((current_time - DM_4310_Motor[0].Motor_time) > MOTOR_OFFLINE_TIMEOUT) {
         DM_4310_Motor[0].is_offline = true;
     } else {

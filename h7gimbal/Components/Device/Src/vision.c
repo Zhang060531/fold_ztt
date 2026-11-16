@@ -30,8 +30,17 @@
 #include "cmsis_os.h"
 #include "INS_Task.h"
 
+#include "usbd_cdc_if.h"
+#include "CRC.h"
+
 int visionMode_test2=0;
 Vision_Data_t Vision_Data;
+
+uint32_t Cur_Tick = 0;
+uint32_t Vision_Tick = 0;
+uint32_t Tick_Error = 0;
+uint8_t FPS = 0;
+
 void SentToVision(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,float Speed,Mode_e Mode,Shoot_Mode_e FireMode);
 void SentToVisionangle(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,Quaternion_Info_Typedef Quaternion_Info);
 void Vision_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf,Vision_Data_t *Vision_Data);
@@ -193,3 +202,79 @@ void GetVisionData(Vision_Data_t* Data)
 {
     *Data = Vision_Data;
 }
+
+#define RADTODEG(x) ((x) * 180.0f / PI)
+#define DEGTORAD(x) ((x) * PI / 180.0f)
+AutoAimVCP_TxNew_t New_TxVCP;
+AutoAimVCP_RxNew_t New_RxVCP;
+
+void AutoAim_RxVCP(uint8_t* Buf)
+{
+    Vision_Data_t *V = &Vision_Data;
+	uint8_t Byte_Num = sizeof(New_RxVCP);
+    if(Buf[0]=='S' && Buf[1]=='P')
+    {
+		if(Verify_CRC16_Check_Sum(Buf,Byte_Num) == 0x01)
+        {
+			Tick_Error = HAL_GetTick() - Vision_Tick;
+			Vision_Tick = HAL_GetTick();
+			FPS = 1000/Tick_Error;
+		    memcpy(&New_RxVCP,Buf,Byte_Num);
+        }
+    }
+    switch(New_RxVCP.mode)
+    {
+        case 0:
+            V->vision_flag = 0;
+            V->shoot_flag   = 0;
+            break;
+        case 1:
+            V->vision_flag = 1;
+            V->shoot_flag   = 0;
+            break;
+        case 2:
+            V->vision_flag = 1;
+            V->shoot_flag   = 1;
+            break;
+        default:
+            V->vision_flag = 0;
+            V->shoot_flag   = 0;
+            break;
+    }
+    V->vision_x_offect = (float)RADTODEG((double)(New_RxVCP.yaw_err));
+    V->vision_y_offect = (float)RADTODEG((double)(New_RxVCP.pitch_err));
+    static float VTemp[2][2] = {{0.0f,0.0f},{0.0f,0.0f}};
+    VTemp[0][1] = VTemp[0][0];
+    VTemp[0][0] = V->vision_x_offect;
+    VTemp[1][1] = VTemp[1][0];
+    VTemp[1][0] = V->vision_y_offect;
+    V->vision_x_offect = 0.9f*VTemp[0][0] + 0.1f*VTemp[0][1];
+    V->vision_y_offect = 0.9f*VTemp[1][0] + 0.1f*VTemp[1][1];
+}
+int8_t Q_k[4] = {1,1,-1,1};
+void AutoAim_TxVCP(float Bullet_Speed)
+{
+    New_TxVCP.head[0] = 'S';
+    New_TxVCP.head[1] = 'P';
+    New_TxVCP.mode = (uint8_t)Vision_Data.mode;
+    
+    New_TxVCP.Q[0] = Quaternion_Info.quat[0] * Q_k[0]; 
+    New_TxVCP.Q[1] = Quaternion_Info.quat[2] * Q_k[1]; 
+    New_TxVCP.Q[2] = Quaternion_Info.quat[1] * Q_k[2];
+    New_TxVCP.Q[3] = Quaternion_Info.quat[3] * Q_k[3];
+
+
+		New_TxVCP.bullet_speed = Bullet_Speed;
+    New_TxVCP.Bullet_Count = 0;
+		uint8_t Byte_Num = sizeof(New_TxVCP);
+		New_TxVCP.crc16 = 0;
+		New_TxVCP.crc16 = Get_CRC16_Check_Sum((uint8_t*)&New_TxVCP, Byte_Num - sizeof(New_TxVCP.crc16),0xffff);
+    CDC_Transmit_HS((uint8_t*)&New_TxVCP, Byte_Num);
+}
+void User_CDC_Receive_HS(uint8_t* Buf)
+{
+    #if(VISION_TR == 1)
+    AutoAim_RxVCP(Buf);
+    #endif
+}
+

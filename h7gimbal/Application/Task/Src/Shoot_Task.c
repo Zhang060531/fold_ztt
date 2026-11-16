@@ -197,11 +197,14 @@ static void Shoot_Input_Read(Shoot_t* shoot)
     //        另外鼠标左键随时可手动补一发。
     //    手动时（没进自瞄）：
     //        鼠标左键 或 UI 扳机键 直接触发。
-    if (REF_mouse_right == 1 || VT13_Info.RC.Switch == 2) {      //进入vision自瞄模式
+    if (REF_mouse_right == 1 || VT13_Info.RC.Switch == 2)
+		{      //进入vision自瞄模式
         fire_request = ((Vision_Data.shoot_flag == 1 && REF_mouse_right == 1)
                         || (ui_shoot_mode == 1 && Vision_Data.shoot_flag == 1)
                         || (REF_mouse_left == 1) || dt7_fire);
-    } else {    //没进入自瞄模式
+    } 
+		else 
+		{    //没进入自瞄模式
         fire_request = REF_mouse_left == 1 || ui_shoot_mode == 1 || dt7_fire;
     }
 }

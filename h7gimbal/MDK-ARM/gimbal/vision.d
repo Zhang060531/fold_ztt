@@ -64,4 +64,11 @@
   ..\Application\Task\Inc\Control_Task.h \
   ..\Components\Controller\Inc\pid.h ..\Components\Algorithm\Inc\lpf.h \
   ..\Components\Device\Inc\remote_control.h \
-  ..\Application\Task\Inc\INS_Task.h
+  ..\Application\Task\Inc\INS_Task.h ..\USB_DEVICE\App\usbd_cdc_if.h \
+  ..\Middlewares\ST\STM32_USB_Device_Library\Class\CDC\Inc\usbd_cdc.h \
+  ..\Middlewares\ST\STM32_USB_Device_Library\Core\Inc\usbd_ioreq.h \
+  ..\Middlewares\ST\STM32_USB_Device_Library\Core\Inc\usbd_def.h \
+  ..\USB_DEVICE\Target\usbd_conf.h \
+  ..\Middlewares\ST\STM32_USB_Device_Library\Core\Inc\usbd_core.h \
+  ..\Middlewares\ST\STM32_USB_Device_Library\Core\Inc\usbd_ctlreq.h \
+  ..\Components\Algorithm\Inc\CRC.h

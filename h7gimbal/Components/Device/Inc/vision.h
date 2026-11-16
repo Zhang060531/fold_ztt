@@ -24,6 +24,8 @@
 #include "Shoot_Task.h"
 #include "Quaternion.h"
 
+#define VISION_TR 1
+
 /* 视觉工作模式（发给妙算，告诉它当前在打什么） */
 typedef enum
 {
@@ -33,6 +35,36 @@ typedef enum
 	big_buff,   // 大能量机关
 	outpost     // 前哨站
 }Mode_e;
+
+
+typedef enum
+{
+  IDLE,        // 空闲
+  AUTO_AIM,    // 自瞄
+  SMALL_BUFF,  // 小符
+  BIG_BUFF     // 大符
+}AutoAim_Mode_t;
+#pragma pack(push , 1)
+typedef struct __attribute__((packed))
+{
+  uint8_t head[2];
+  uint8_t mode;  // 0: 空闲, 1: 自瞄, 2: 小符, 3: 大符
+  float Q[4];
+  float bullet_speed;
+  uint16_t Bullet_Count;
+  uint16_t crc16;
+}AutoAimVCP_TxNew_t;
+
+typedef struct __attribute__((packed))
+{
+  uint8_t head[2];
+  uint8_t mode;
+  float yaw_err;
+  float pitch_err;
+  uint16_t crc16;
+}AutoAimVCP_RxNew_t;
+#pragma pack(pop)
+
 
 /* 视觉数据结构：妙算通过 CAN 发来的自瞄数据，解析后存这里。
  *   angle_fdb/set[2]     角度反馈/设定(视觉相关的角度)
@@ -69,4 +101,6 @@ void GetVisionData(Vision_Data_t* Data);
 extern void SentToVision(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,float Speed,Mode_e Mode,Shoot_Mode_e FireMode);
 extern void SentToVisionangle(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,Quaternion_Info_Typedef Quaternion_Info);
 extern void Vision_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf,Vision_Data_t *Vision_Data);
+void AutoAim_TxVCP(float Bullet_Speed);
+void AutoAim_RxVCP(uint8_t* Buf);
 #endif

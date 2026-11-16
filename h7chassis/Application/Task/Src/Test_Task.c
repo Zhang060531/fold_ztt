@@ -59,6 +59,7 @@ void Test_Task(void const * argument)
 //		USART_Vofa_Justfloat_Transmit_N(vofa_data, 9);
 
     //USART_Vofa_Justfloat_Transmit(Shoot_Motor.Data.Velocity ,0,0);
+			USART_Vofa_Justfloat_Transmit(g_enc[0].angle_deg,0,0);
         osDelay(1);
     }
 }

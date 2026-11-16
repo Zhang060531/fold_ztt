@@ -67,7 +67,7 @@ void CAN_Task(void const * argument)
 
         //CAN_Task_SysTick = osKernelSysTick();   /* 读取系统 tick */
 			  CAN_Task_SysTick = xTaskGetTickCount();
-        /* 1. 发送 4 个轮毂电机电流指令（CAN 0x200，给 C620 电调） */
+        /* 1. 发送 4 个轮电机电流指令（CAN 0x200，给 C620 电调） */
         TransmitChassisMotorCurrent(&FDCAN1_TxFrame, chassis.chassis_motor_set[M1].current_set, chassis.chassis_motor_set[M2].current_set, chassis.chassis_motor_set[M3].current_set, chassis.chassis_motor_set[M4].current_set);
 			  Transmit_Shoot_Info(&FDCAN2_TxFrame, Referee_System_Info.shoot_data.initial_speed, Referee_System_Info.power_heat_data.shooter_17mm_barrel_heat,Referee_System_Info.robot_status.shooter_barrel_heat_limit,Referee_System_Info.robot_status.shooter_barrel_cooling_value);   /* 2. 发送发射数据（CAN 0x23，给云台） */
          

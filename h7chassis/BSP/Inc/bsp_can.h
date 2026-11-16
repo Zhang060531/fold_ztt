@@ -21,10 +21,8 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32h7xx.h"
-
+#include "fdcan.h"
 #include "legacy_encoder.h"
-
-extern LegacyEncoder g_enc[4];  //四个编码器实例 
 
 
 /* ===== 文件说明：CAN 底层驱动头文件 (bsp_can.h) =====
@@ -93,16 +91,7 @@ typedef struct
 SuperPower_Info_Typedef;
 
 
-typedef struct
-{
-	CANFrameInfo_typedef FDCANFrame;  //Rxidentifier = 0x001(编码器ID=1)
-	float angle_deg;                  //编码器角度 
-	uint16_t update_time;             //最近一帧时间戳        
-}Encoder_Info_Typedef;
 
-extern Encoder_Info_Typedef EncoderData;
-extern void Encoder_Info_Update(uint32_t*Indentifier, uint8_t *Rx_Buf,Encoder_Info_Typedef*EncoderData);
-extern uint32_t GetEncoderAngleDeg(float *angle);
 
 /* int16 -> float 转换(处理符号位，等价于简单强转) */
 float Int16ToFloat(int16_t data);

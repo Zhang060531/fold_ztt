@@ -270,7 +270,7 @@ static BMI088_Status_e BMI088_Gyro_Init(void)
     return BMI088_NO_ERROR;
 }
 
-#define IMU_Calibration_ENABLE  1U
+#define IMU_Calibration_ENABLE  0U
 
 /**
  * @brief  标定陀螺仪零偏（Offset）

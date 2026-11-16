@@ -39,6 +39,7 @@
   ..\Drivers\STM32H7xx_HAL_Driver\Inc\stm32h7xx_hal_pcd.h \
   ..\Drivers\STM32H7xx_HAL_Driver\Inc\stm32h7xx_ll_usb.h \
   ..\Drivers\STM32H7xx_HAL_Driver\Inc\stm32h7xx_hal_pcd_ex.h \
+  ..\Core\Inc\fdcan.h ..\Core\Inc\main.h \
   ..\Components\Device\Inc\legacy_encoder.h \
   ..\Application\Task\Inc\Control_Task.h \
   ..\Components\Device\Inc\Referee_System.h \

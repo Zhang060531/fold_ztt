@@ -221,6 +221,6 @@ extern float filter_sht(float temp,float alpha);
 extern void ConstrainLoop(float* output, float input, float min, float max);
 extern void TransmitFriMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2);
 extern void TransmitGM6020Voltage(FDCAN_TxFrame_TypeDef*FDCAN_TxFrame , int16_t voltage);
-
+extern void TransmitGM6020Current(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t Current);
 
 #endif //DEVICE_MOTOR_H

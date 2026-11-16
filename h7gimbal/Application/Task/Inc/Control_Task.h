@@ -30,7 +30,7 @@
  *  - 底盘跟随 PID 在 FOLLOW_PID_* 一组
  * =====================================================================
  */
-#define CHANNEL_PITCH_SCALE_FACTOR 6000.0f  // 俯仰摇杆→角度系数(越大动得越慢)     //9000
+#define CHANNEL_PITCH_SCALE_FACTOR 9000.0f  // 俯仰摇杆→角度系数(越大动得越慢)     //9000
 #define CHANNEL_YAW_SCALE_FACTOR 3000.0f    // 偏航摇杆→角度系数                   //5000
 #define MOUSE_SCALE_FACTOR 200.0f           // 鼠标→角度系数
 #define KEY_SCALE_FACTOR 20.0f              // 键盘→底盘速度系数
@@ -65,7 +65,7 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 
 /* ---- 俯仰轴 内环(角速度环) —— 手动控制 ----
  * 注意 KP 是负数：pitch 电机安装方向与 yaw 相反，需要反号才能负反馈 */
-#define PITCH_CORE_PID_KP -0.013
+#define PITCH_CORE_PID_KP 0.01
 #define PITCH_CORE_PID_KI -0
 #define PITCH_CORE_PID_KD 0
 #define PITCH_CORE_PID_MAX_IOUT 0.5
@@ -87,7 +87,7 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 
 /* ---- 俯仰轴 外环(角度环) —— 视觉自瞄用 ---- */
 #define PITCH_VISION_SHELL_PID_KP 20
-#define PITCH_VISION_SHELL_PID_KI 0.39   //0.2
+#define PITCH_VISION_SHELL_PID_KI 0.2   //0.2
 #define PITCH_VISION_SHELL_PID_KD 0
 #define PITCH_VISION_SHELL_PID_MAX_IOUT 100
 #define PITCH_VISION_SHELL_PID_MAX_OUT 400 
@@ -120,17 +120,17 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
  * 外环 位置环：角度误差(°) → 目标转速(rpm)
  * 内环 速度环：转速误差(rpm) → 电压
  * ===================================================================== */
-#define GM6020_SHELL_PID_KP  7.0f        // 位置环 P：1°角度误差 → 5rpm 目标转速
+#define GM6020_SHELL_PID_KP  7.0f        // 位置环 P：1°角度误差 -> 7rpm 目标转速
 #define GM6020_SHELL_PID_KI  0.02f        // 位置环 I：先给 0，有静差再加
 #define GM6020_SHELL_PID_KD  0.0f        // 位置环 D：先给 0
-#define GM6020_SHELL_PID_MAX_IOUT  200.0f  // 位置环积分限幅(rpm)
-#define GM6020_SHELL_PID_MAX_OUT   200.0f  // 位置环输出限幅(目标转速上限 rpm)
+#define GM6020_SHELL_PID_MAX_IOUT  100.0f  // 位置环积分限幅(rpm)
+#define GM6020_SHELL_PID_MAX_OUT   100.0f  // 位置环输出限幅(目标转速上限 rpm)
 
-#define GM6020_CORE_PID_KP   60.0f       // 速度环 P：1rpm转速误差 → 60 电压
+#define GM6020_CORE_PID_KP   50.0f       // 速度环 P：1rpm转速误差 → 60 电压
 #define GM6020_CORE_PID_KI   0.0f        // 速度环 I：先给 0
 #define GM6020_CORE_PID_KD   0.0f        // 速度环 D：先给 0
-#define GM6020_CORE_PID_MAX_IOUT  15000.0f  // 速度环积分限幅(电压)
-#define GM6020_CORE_PID_MAX_OUT   15000.0f  // 速度环输出限幅(电压)。首次先半压(15000)，稳了再提 30000
+#define GM6020_CORE_PID_MAX_IOUT  10000.0f  // 速度环积分限幅(电压)
+#define GM6020_CORE_PID_MAX_OUT   10000.0f  // 速度环输出限幅(电压)
 
 
 /* 视觉速度前馈 */
@@ -150,7 +150,7 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #define FOLLOW_PID_KD 0
 #define FOLLOW_PID_MAX_IOUT 0.2
 #define FOLLOW_PID_MAX_OUT 2.4
-
+  
 #define FOLLOW_PID_KP_PIECE1 0.015//-0.030
 #define FOLLOW_PID_KI_PIECE1 0
 #define FOLLOW_PID_KD_PIECE1 0
@@ -160,14 +160,42 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #define FOLLOW_PID_ERR_BOUNDARY 5
 
 //大pitch GM6020折叠/展开的目标角度（按照安装时的水平和竖直角度 要改！！）
-#define GM6020_EXTEND_ANGLE  0.0f  //展开：大pitch立起来（正常作战角度）
-#define GM6020_FOLD_ANGLE -90.0f   //收缩：大pitch趴下果冻
+#define GM6020_EXTEND_ANGLE  56.0f  //展开：大pitch立起来（正常作战角度）
+#define GM6020_FOLD_ANGLE 125.0f   //收缩：大pitch趴下果冻
 //收缩时小pitch保持的水平角度（也是按实测水平fdb角度填 哦对达秒可以直接设置零点）
 #define PITCH_LEVEL_ANGLE 0.0f  //收缩时小pitch保持的目标角度
 
 //大pitch抱闸死区（越小就越准但难锁上 越大越容易锁上但停的糙）
-#define GM6020_LOCK_DEADBAND 3.0f  //误差小于它就锁死
-#define GM6020_UNLOCK_DEADBAND 5.0f  //误差大于它才松开重动
+#define GM6020_LOCK_DEADBAND 4.0f  //误差小于它就锁死
+#define GM6020_UNLOCK_DEADBAND 7.0f  //误差大于它才松开重动
+
+/* =====================================================================
+ * 大 pitch 抱闸器硬件接口
+ * ---------------------------------------------------------------------
+ * 抱闸器控制脚固定为 PC14，禁止再写成 GPIO_PIN_0：
+ *   SET   -> 抱闸线圈通电，机械抱闸释放，此时 GM6020 才能带动大 pitch
+ *   RESET -> 抱闸线圈断电，内部弹簧把大 pitch 抱死
+ *
+ * 使用宏统一控制，避免不同位置直接操作 GPIO 时写错端口或引脚。
+ * ===================================================================== */
+#define GM6020_BRAKE_POWER_ON()   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, GPIO_PIN_SET)
+#define GM6020_BRAKE_POWER_OFF()  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, GPIO_PIN_RESET)
+
+/* 大 pitch 抱闸动作时序。 */
+#define GM6020_BRAKE_RELEASE_WAIT_MS   100U   //抱闸通电后等待机械释放
+#define GM6020_BRAKE_SETTLE_TIME_MS    100U   //进入目标死区后连续稳定多久才断抱闸
+#define GM6020_BRAKE_ENGAGE_HOLD_MS     50U   //抱闸断电后继续闭环保持，等待机械咬合
+#define GM6020_BRAKE_SETTLE_SPEED_RPM   10.0f //到位稳定判定允许的最大转速
+#define GM6020_FEEDBACK_TIMEOUT_MS     100U   //GM6020 反馈超时后停止输出并抱闸
+
+/* 大 pitch 重力前馈。
+ * 折叠方向认为受重力下拉，因此重力前馈方向与折叠方向相反。
+ * 先给较小值测试：如果松闸后有向上冲的趋势，减小 VOLTAGE；
+ * 如果松闸后仍然明显下坠，逐步增大 VOLTAGE。
+ * 如果方向完全反了，把 SIGN 改成 +1.0f。 */
+#define GM6020_GRAVITY_FF_VOLTAGE       2100.0f
+#define GM6020_GRAVITY_FF_SIGN \
+    ((GM6020_FOLD_ANGLE > GM6020_EXTEND_ANGLE) ? -1.0f : 1.0f)
 
 #ifndef NULL
 #define NULL 0
@@ -201,8 +229,8 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #define ANGLE_ZERO 0
 #define ANGLE_MAX 180    // 通用角度上界
 
-#define PITCH_ABSOLUTE_MAX_ANGLE 25   // 俯仰绝对模式上限(抬头最大 +25°)
-#define PITCH_ABSOLUTE_MIN_ANGLE -3   // 俯仰绝对模式下限(低头最大 -3°)
+#define PITCH_ABSOLUTE_MAX_ANGLE 35   // 俯仰绝对模式上限(抬头最大 +25°)
+#define PITCH_ABSOLUTE_MIN_ANGLE -10   // 俯仰绝对模式下限(低头最大 -3°)
 #define YAW_ABSOLUTE_MAX_ANGLE 180
 #define YAW_ABSOLUTE_MIN_ANGLE -180
 
@@ -340,11 +368,32 @@ typedef struct
 	float absolute_filt[3];
 }Angle_t;
 
-/* GM6020（大 pitch）控制状态：PID + 目标/使能/输出 收在一起 */
+/* 大 pitch 抱闸状态：
+ * LOCKED    : 抱闸断电，电机输出 0
+ * RELEASING : 抱闸通电，保持当前角度，等待机械释放
+ * MOVING    : 闭环运行到目标角度
+ * SETTLING  : 已进入目标死区，连续等待稳定
+ * ENGAGING  : 抱闸已断电，继续短时保持等待机械咬合
+ */
+typedef enum
+{
+    GM6020_BRAKE_LOCKED = 0,  //抱闸断电抱死，GM6020 不发力
+    GM6020_BRAKE_RELEASING,   //抱闸已通电，等待机械释放，同时保持当前角度
+    GM6020_BRAKE_MOVING,      //抱闸已释放，闭环运行到目标角度
+    GM6020_BRAKE_SETTLING,    //已进入目标死区，连续等待稳定
+    GM6020_BRAKE_ENGAGING     //抱闸已断电，继续短时保持以等待机械咬合
+} Gm6020_BrakeState_e;
+
+/* GM6020（大 pitch）控制状态：PID + 目标/抱闸状态机/输出 收在一起 */
 typedef struct
 {
-    float  target_angle;          // 目标角度(°)
-    int16_t voltage;              // 双环算出的电压(-30000~30000)
+    float  target_angle;          //折叠/展开最终目标角度，单位：度
+    int16_t voltage;              //GM6020 双环 PID 输出，最终经 CAN 下发，范围约 -30000~30000
+    Gm6020_BrakeState_e brake_state; //当前抱闸时序状态，见 Gm6020_BrakeState_e
+    float release_hold_angle;     //RELEASING 阶段保持的角度，防止松闸瞬间下坠
+    int16_t gravity_ff_voltage;   //当前重力前馈电压，方便在 Watch/VoFA 中观察
+    uint32_t state_enter_ms;      //进入当前状态时的 FreeRTOS tick，用于计算各阶段等待时间
+    uint32_t settle_start_ms;     //连续满足目标死区的起始 tick，用于判断是否已经稳定
 } Gm6020_Ctrl_t;
 
 /* 云台控制核心结构体：整个云台的状态全收在全局变量 gimbal 里。

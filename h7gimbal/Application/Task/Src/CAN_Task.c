@@ -54,7 +54,7 @@ extern Shoot_t shoot;
 * @retval None
 */
 /* USER CODE END Header_CAN_Task */
-float kp=0,speed=13.8;                    // 调试用变量(未参与实际控制)
+
 float front1 = -1.26,front = 0;   //-1.11  // front1=pitch 重力补偿系数，front=当前补偿值
 float g_offset =0;
 // 重力补偿参数结构体
@@ -90,12 +90,21 @@ float calc_gravity_compensation(const GravityCompParam_t *param) {
     
     return g_offset;
 }
-
+//uint8_t aaa=0;
 void CAN_Task(void const * argument)
 {
     TickType_t CAN_Task_SysTick = 0;
     for (;;)
     {
+//				if(aaa==1)
+//				{
+//					HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);  
+//				}
+//				else if(aaa==0)
+//				{
+//					HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_RESET); 
+//				}
+
 			  //老版重力补偿
 	      front = front1 * cos(gimbal.angle.absolute_fdb[PITCH] * 2 * PI / 360);   // pitch 重力补偿：随俯仰角余弦变化，水平时最大
 			  //新版重力补偿前馈
@@ -106,30 +115,38 @@ void CAN_Task(void const * argument)
         // CAN-FD
         if (gimbal.pitch_motor_fdb.Data.State != 1)
         {
-					//DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[0], Motor_Save_Zero_Position);  //保存当前位置为零点
+					DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[0], Motor_Save_Zero_Position);  //保存当前位置为零点
             DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[0], Motor_Clear);   // 清除俯仰电机错误
 						DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[0], Motor_Enable);   // 使能俯仰电机
         }
         if (gimbal.yaw_motor_fdb.Data.State != 1)
         {
-						DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Clear);    // 清除偏航电机错误
-            DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Enable);  // 使能偏航电机
+						//DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Clear);    // 清除偏航电机错误
+            //DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Enable);  // 使能偏航电机
 						//DM_Motor_Command(&FDCAN2_TxFrame, &DM_4310_Motor[1], Motor_Save_Zero_++Position);  //保存yaw零点
         }
 
-				TransmitChassis_Info(&FDCAN2_TxFrame);   // 0x21 帧：底盘速度指令
-        TransmitGimbal_Info(&FDCAN2_TxFrame);    // 0x22 帧：云台状态                                           
-        DM_Motor_CAN_TxMessage(&FDCAN2_TxFrame, &DM_4310_Motor[0], 0, 0, 0, 0, gimbal.motor_set[PITCH].Torque+front);   // pitch 力矩 + 重力补偿  原front
-        DM_Motor_CAN_TxMessage(&FDCAN2_TxFrame, &DM_4310_Motor[1], 0, 0, 0, 0, gimbal.motor_set[YAW].Torque);    // yaw 力矩
+				//TransmitChassis_Info(&FDCAN2_TxFrame);   // 0x21 帧：底盘速度指令
+        //TransmitGimbal_Info(&FDCAN2_TxFrame);    // 0x22 帧：云台状态                                           
+        DM_Motor_CAN_TxMessage(&FDCAN2_TxFrame, &DM_4310_Motor[0], 0, 0, 0, 0,gimbal.motor_set[PITCH].Torque);   // pitch 力矩 + 重力补偿  原front
+        //DM_Motor_CAN_TxMessage(&FDCAN2_TxFrame, &DM_4310_Motor[1], 0, 0, 0, 0, gimbal.motor_set[YAW].Torque);    // yaw 力矩
         
-				TransmitGM6020Voltage(&FDCAN1_TxFrame,gimbal.gm6020.voltage);   // GM6020 电压下发
+				TransmitGM6020Current(&FDCAN1_TxFrame,gimbal.gm6020.voltage);   // GM6020 电压下发
 				
-				TransmitFriMotorCurrent(&FDCAN1_TxFrame,
-                                shoot.fri_motor_set[FR1].current_set,
-                                shoot.fri_motor_set[FR2].current_set);   // CAN 0x200 帧：摩擦轮电流
-
-				SentToVision(&FDCAN3_TxFrame,shoot.initial_speed, gimbal.vision_data.mode, 0);   // CAN3 帧：弹速+模式发给视觉
-        SentToVisionangle(&FDCAN3_TxFrame, Quaternion_Info);   // CAN3 帧：四元数姿态发给视觉
+				//TransmitFriMotorCurrent(&FDCAN1_TxFrame,
+                                //shoot.fri_motor_set[FR1].current_set,
+                                //shoot.fri_motor_set[FR2].current_set);   // CAN 0x200 帧：摩擦轮电流
+				//和自瞄can通信
+				//SentToVision(&FDCAN3_TxFrame,shoot.initial_speed, gimbal.vision_data.mode, 0);   // CAN3 帧：弹速+模式发给视觉
+        //SentToVisionangle(&FDCAN3_TxFrame, Quaternion_Info);   // CAN3 帧：四元数姿态发给视觉
+				
+				//和自瞄串口通信
+				#if(VISION_TR == 0)
+				  SentToVision(&FDCAN3_TxFrame,Sh.Ref.Velocity, gimbal.vision_data.mode, 0);
+          SentToVisionangle(&FDCAN3_TxFrame, Quaternion_Info);
+        #else
+          AutoAim_TxVCP(shoot.initial_speed);
+        #endif
    if(CAN_Task_SysTick % 2== 0){
 
    //500Hz发送 请保证所有任务osDelay(1)

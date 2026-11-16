@@ -34,11 +34,12 @@
 #include "Referee_System.h"
 #include "Motor.h"
 #include "arm_math.h"
+
 #include "bsp_can.h"
+
 #include "math.h"
 #include "INS_Task.h"
 #include "ramp.h"
-
 
 /* ===== 全局变量 =====
  * INS_Info             ：IMU 姿态数据（外部定义，见 INS_Task.c）
@@ -49,12 +50,13 @@
  *                        调试用功率预测/实测变量（当前代码里未再赋值使用） */
 extern INS_Info_Typedef INS_Info;               
 
-Chassis_Info_Typedef chassis;                   
-PID_Info_TypeDef chassis_motor_pid[4];          
+Chassis_Info_Typedef chassis;      
 
+PID_Info_TypeDef drive_motor_pid[4];          //四个轮电机pid
+PID_Info_TypeDef steer_motor_pid[4];          //四个舵电机pid
+LegacyEncoder g_enc[4];
 
 float set = 0;                                  
-
 
 float dbg_predict_wheel_power = 0.0f;           
 float dbg_predict_total_power = 0.0f;           
@@ -132,16 +134,25 @@ void ChassisInit(void)
     for (int i = 0; i < 4; i++)
     {
         /* 4 个轮毂电机共用的速度环 PID 参数（位置式） */
-        chassis_motor_pid[i].Param.KP = CHASSIS_MOTOR_PID_KP;
-        chassis_motor_pid[i].Param.KI = CHASSIS_MOTOR_PID_KI;
-        chassis_motor_pid[i].Param.KD = CHASSIS_MOTOR_PID_KD;
-        chassis_motor_pid[i].Param.LimitIntegral = CHASSIS_MOTOR_PID_MAX_IOUT;
-        chassis_motor_pid[i].Param.LimitOutput = CHASSIS_MOTOR_PID_MAX_OUT;
-        chassis_motor_pid[i].Type = PID_POSITION;
+        drive_motor_pid[i].Param.KP = CHASSIS_MOTOR_PID_KP;
+        drive_motor_pid[i].Param.KI = CHASSIS_MOTOR_PID_KI;
+        drive_motor_pid[i].Param.KD = CHASSIS_MOTOR_PID_KD;
+        drive_motor_pid[i].Param.LimitIntegral = CHASSIS_MOTOR_PID_MAX_IOUT;
+        drive_motor_pid[i].Param.LimitOutput = CHASSIS_MOTOR_PID_MAX_OUT;
+        drive_motor_pid[i].Type = PID_POSITION;
 
         chassis.Slope.K_angle[i] = 1.0f;   /* 坡度补偿系数初始化为 1（不补偿） */
     }
-
+		
+		/* 初始化 4 个磁编码器：绑定 FDCAN3，ID 分别 1/2/3/4 */
+    LegacyEncoder_Init(&g_enc[0], &hfdcan3, 1);
+    //LegacyEncoder_Init(&g_enc[1], &hfdcan3, 2);
+    //LegacyEncoder_Init(&g_enc[2], &hfdcan3, 3);
+    //LegacyEncoder_Init(&g_enc[3], &hfdcan3, 4);
+		LegacyEncoder_SetPeriodCode(&g_enc[0], 1);     // 1号改频率：1=10ms ... 5=50ms
+		//LegacyEncoder_SetZero(&g_enc[0]);              // 1号设零点（先转到你要的零点再调）
+		
+		
     /* 功率模型系数（实测拟合）：P = K1*i² + K2*w² + K3*i*w + K4/4，单位归一化到 W */
     chassis.PowerCtrl[1].K1 = 1.23e-07f;
     chassis.PowerCtrl[1].K2 = 1.453e-07f;
@@ -168,7 +179,7 @@ void CHASSIS_Single_Loop_Out(void)
     /* 第2步：对每个轮子做速度环 PID，输出电流指令 */
     for (int i = 0; i < 4; i++)
     {
-        chassis.chassis_motor_set[i].current_set = PID_Calculate(&chassis_motor_pid[i],
+        chassis.chassis_motor_set[i].current_set = PID_Calculate(&drive_motor_pid[i],
             chassis.chassis_motor_set[i].speed_rpm_set,
             chassis.chassis_motor_fdb[i].Data.Velocity);
     }

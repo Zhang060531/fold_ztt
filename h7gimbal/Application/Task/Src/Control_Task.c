@@ -63,8 +63,6 @@ PID_Info_TypeDef follow_pid, follow_pid2;  // 底盘跟随云台时用的 PID（
 PID_Info_TypeDef gm6020_shell_pid;    // GM6020 外环 位置环 PID
 PID_Info_TypeDef gm6020_core_pid;     // GM6020 内环 速度环 PID
 
-uint8_t gm6020_locked = 0;
-
 float key_scale_factor = 2.0;   // 键盘控制底盘/云台时的速度系数
 bool head_flag = HEAD;          // 云台当前朝向：车头(HEAD) 还是 车尾(TAIL)
 extern Image_Transmission_Info_TypeDef Image_Transmission_Info;  // 图传数据（外部定义）
@@ -105,16 +103,13 @@ static LowPassFilter1p_Info_TypeDef pitch_tx_lpf;          // 发送Pitch角度�
 
 /*【新增】yaw 手动控制的速度前馈：参考角速度(°/s)，YawAngleRefSet 里算好，pidCalc 里前馈到内环 */
 static float yaw_ref_vel = 0.0f;
-volatile float yaw_vel_ff_gain = 0.9f;   /*【新增】速度前馈增益，调试时在 Watch 窗口修改该值即可实时调参 */
+volatile float yaw_vel_ff_gain = 0.9f;   /*【新增】速度前馈增益
 
-/*【新增】pitch 手动控制的速度前馈：和 yaw 一样，PitchAngleRefSet 里算好，pidCalc 里前馈到内环 */
-static float pitch_ref_vel = 0.0f;
-volatile float pitch_vel_ff_gain = 0.9f; /*【新增】pitch 速度前馈增益，调试时在 Watch 窗口修改该值即可实时调参 */
+//【新增】pitch 手动控制的速度前馈：和 yaw 一样，PitchAngleRefSet 里算好，pidCalc 里前馈到内环 */
+//static float pitch_ref_vel = 0.0f;
+//volatile float pitch_vel_ff_gain = 0.9f; /*【新增】pitch 速度前馈增益
 
 
-/*********************************************************/
-/* ==================== 静态函数声明 ==================== */
-/*********************************************************/
 static void GimbalInit(void);
 static void GetDataFdb(Gimbal_t* gimbal_fdb);
 static void GimbalModeSet(Gimbal_t* gimbal_mode_set);
@@ -125,8 +120,11 @@ static void ChassisSpeedSet(Gimbal_t* chassis_speed);
 static void PitchPidCalc(Gimbal_t* pitch_pid_calc);
 static void YawPidCalc(Gimbal_t* yaw_pid_calc);
 
+static void PitchFeedbackModeSet(Gimbal_t*pitch_feedback);
 static void GM6020PidCalc(void);
-static void FoldSet(void); 
+static void GM6020BrakeStateUpdate(void);
+static void GM6020EnterBrakeState(Gm6020_BrakeState_e state);
+static float GM6020GetAngleError(void);
 
 static void GimbalModeChangeControlTransit(Gimbal_t* gimbal_mode_change);
 static void addPitchAngle(Gimbal_t* pitch, float add);
@@ -152,13 +150,14 @@ void Control_Task(void const *pvParameters)
 			
 			 //设定模式相关
         GimbalModeSet(&gimbal);         // 3. 根据遥控器设定云台工作模式
-        ChassisModeSet(&gimbal);        // 4. 根据遥控器设定底盘跟随模式
-        GimbalModeChangeControlTransit(&gimbal);  // 5. 模式切换时的角度平滑过渡
+        ChassisModeSet(&gimbal);        // 4. 根据遥控器设定底盘跟随模式  
 				
-				FoldSet();
+				GM6020BrakeStateUpdate();
+				PitchFeedbackModeSet(&gimbal);
+				GimbalModeChangeControlTransit(&gimbal);  // 5. 模式切换时的角度平滑过渡
 				//大pitch
 			  GM6020PidCalc();  							//GM6020双环pid算电压（角度-->电压）
-			  //小pitch
+				//小pitch
         PitchAngleRefSet(&gimbal);      // 6. 计算 pitch 俯仰目标角度
 				//yaw
         YawAngleRefSet(&gimbal);        // 7. 计算 yaw 偏航目标角度
@@ -203,63 +202,61 @@ static void GimbalInit(void)
     gimbal_core_pid[PITCH].Param.LimitOutput = PITCH_CORE_PID_MAX_OUT;
     gimbal_core_pid[PITCH].Type = PID_POSITION; 
 
-//    /* ===== 云台偏航轴(yaw) 外环「角度环」PID 参数 ===== */
-    gimbal_shell_pid[YAW].Param.KP = YAW_SHELL_PID_KP;
-    gimbal_shell_pid[YAW].Param.KI = YAW_SHELL_PID_KI;
-    gimbal_shell_pid[YAW].Param.KD = YAW_SHELL_PID_KD;
-    gimbal_shell_pid[YAW].Param.LimitIntegral = YAW_SHELL_PID_MAX_IOUT;
-    gimbal_shell_pid[YAW].Param.LimitOutput = YAW_SHELL_PID_MAX_OUT;
-    gimbal_shell_pid[YAW].Type = PID_POSITION;
+////    /* ===== 云台偏航轴(yaw) 外环「角度环」PID 参数 ===== */
+////    gimbal_shell_pid[YAW].Param.KP = YAW_SHELL_PID_KP;
+////    gimbal_shell_pid[YAW].Param.KI = YAW_SHELL_PID_KI;
+////    gimbal_shell_pid[YAW].Param.KD = YAW_SHELL_PID_KD;
+////    gimbal_shell_pid[YAW].Param.LimitIntegral = YAW_SHELL_PID_MAX_IOUT;
+////    gimbal_shell_pid[YAW].Param.LimitOutput = YAW_SHELL_PID_MAX_OUT;
+////    gimbal_shell_pid[YAW].Type = PID_POSITION;
 
-    /* ===== 云台偏航轴(yaw) 内环「角速度环」PID 参数 ===== */
-    gimbal_core_pid[YAW].Param.KP = YAW_CORE_PID_KP;
-    gimbal_core_pid[YAW].Param.KI = YAW_CORE_PID_KI;
-    gimbal_core_pid[YAW].Param.KD = YAW_CORE_PID_KD;
-    gimbal_core_pid[YAW].Param.LimitIntegral = YAW_CORE_PID_MAX_IOUT;   
-    gimbal_core_pid[YAW].Param.LimitOutput = YAW_CORE_PID_MAX_OUT;  
-    gimbal_core_pid[YAW].Type = PID_POSITION;   
+////    /* ===== 云台偏航轴(yaw) 内环「角速度环」PID 参数 ===== */
+////    gimbal_core_pid[YAW].Param.KP = YAW_CORE_PID_KP;
+////    gimbal_core_pid[YAW].Param.KI = YAW_CORE_PID_KI;
+////    gimbal_core_pid[YAW].Param.KD = YAW_CORE_PID_KD;
+////    gimbal_core_pid[YAW].Param.LimitIntegral = YAW_CORE_PID_MAX_IOUT;   
+////    gimbal_core_pid[YAW].Param.LimitOutput = YAW_CORE_PID_MAX_OUT;  
+////    gimbal_core_pid[YAW].Type = PID_POSITION;   
 
+////		/* ===== 视觉自瞄 俯仰轴(pitch) 外环「角度环」PID 参数 ===== */
+////    vision_shell_pid[PITCH].Param.KP = PITCH_VISION_SHELL_PID_KP;
+////    vision_shell_pid[PITCH].Param.KI = PITCH_VISION_SHELL_PID_KI;   
+////    vision_shell_pid[PITCH].Param.KD = PITCH_VISION_SHELL_PID_KD;   
+////    vision_shell_pid[PITCH].Param.LimitIntegral = PITCH_VISION_SHELL_PID_MAX_IOUT; 
+////    vision_shell_pid[PITCH].Param.LimitOutput = PITCH_VISION_SHELL_PID_MAX_OUT;
+////    vision_shell_pid[PITCH].Type = PID_DERIVATIVE_ON_MEASURE;
+////		    
+////    /* ===== 视觉自瞄 俯仰轴(pitch) 内环「角速度环」PID 参数 ===== */
+////    vision_core_pid[PITCH].Param.KP = VISION_PITCH_CORE_PID_KP;
+////    vision_core_pid[PITCH].Param.KI = VISION_PITCH_CORE_PID_KI; 
+////    vision_core_pid[PITCH].Param.KD = VISION_PITCH_CORE_PID_KD; 
+////    vision_core_pid[PITCH].Param.LimitIntegral = VISION_PITCH_CORE_PID_MAX_IOUT; 
+////    vision_core_pid[PITCH].Param.LimitOutput = VISION_PITCH_CORE_PID_MAX_OUT;
+////    vision_core_pid[PITCH].Type = PID_POSITION;/* PID类型：位置式PID */
 
-		/* ===== 视觉自瞄 俯仰轴(pitch) 外环「角度环」PID 参数 ===== */
-    vision_shell_pid[PITCH].Param.KP = PITCH_VISION_SHELL_PID_KP;
-    vision_shell_pid[PITCH].Param.KI = PITCH_VISION_SHELL_PID_KI;   
-    vision_shell_pid[PITCH].Param.KD = PITCH_VISION_SHELL_PID_KD;   
-    vision_shell_pid[PITCH].Param.LimitIntegral = PITCH_VISION_SHELL_PID_MAX_IOUT; 
-    vision_shell_pid[PITCH].Param.LimitOutput = PITCH_VISION_SHELL_PID_MAX_OUT;
-    vision_shell_pid[PITCH].Type = PID_DERIVATIVE_ON_MEASURE;
-		    
-    /* ===== 视觉自瞄 俯仰轴(pitch) 内环「角速度环」PID 参数 ===== */
-    vision_core_pid[PITCH].Param.KP = VISION_PITCH_CORE_PID_KP;
-    vision_core_pid[PITCH].Param.KI = VISION_PITCH_CORE_PID_KI; 
-    vision_core_pid[PITCH].Param.KD = VISION_PITCH_CORE_PID_KD; 
-    vision_core_pid[PITCH].Param.LimitIntegral = VISION_PITCH_CORE_PID_MAX_IOUT; 
-    vision_core_pid[PITCH].Param.LimitOutput = VISION_PITCH_CORE_PID_MAX_OUT;
-    vision_core_pid[PITCH].Type = PID_POSITION;/* PID类型：位置式PID */
+////    /* ===== 视觉自瞄 偏航轴(yaw) 外环「角度环」PID 参数 ===== */
+////    vision_shell_pid[YAW].Param.KP = YAW_VISION_SHELL_PID_KP;
+////    vision_shell_pid[YAW].Param.KI = YAW_VISION_SHELL_PID_KI;
+////    vision_shell_pid[YAW].Param.KD = YAW_VISION_SHELL_PID_KD;
+////    vision_shell_pid[YAW].Param.LimitIntegral = YAW_VISION_SHELL_PID_MAX_IOUT;
+////    vision_shell_pid[YAW].Param.LimitOutput = YAW_VISION_SHELL_PID_MAX_OUT;
+////    vision_shell_pid[YAW].Type = PID_DERIVATIVE_ON_MEASURE;
+////        
+////    /* ===== 视觉自瞄 偏航轴(yaw) 内环「角速度环」PID 参数 ===== */
+////    vision_core_pid[YAW].Param.KP = VISION_YAW_CORE_PID_KP;
+////    vision_core_pid[YAW].Param.KI = VISION_YAW_CORE_PID_KI; 
+////    vision_core_pid[YAW].Param.KD = VISION_YAW_CORE_PID_KD; 
+////    vision_core_pid[YAW].Param.LimitIntegral = VISION_YAW_CORE_PID_MAX_IOUT; 
+////    vision_core_pid[YAW].Param.LimitOutput = VISION_YAW_CORE_PID_MAX_OUT;
+////    vision_core_pid[YAW].Type = PID_POSITION;  
 
-    /* ===== 视觉自瞄 偏航轴(yaw) 外环「角度环」PID 参数 ===== */
-    vision_shell_pid[YAW].Param.KP = YAW_VISION_SHELL_PID_KP;
-    vision_shell_pid[YAW].Param.KI = YAW_VISION_SHELL_PID_KI;
-    vision_shell_pid[YAW].Param.KD = YAW_VISION_SHELL_PID_KD;
-    vision_shell_pid[YAW].Param.LimitIntegral = YAW_VISION_SHELL_PID_MAX_IOUT;
-    vision_shell_pid[YAW].Param.LimitOutput = YAW_VISION_SHELL_PID_MAX_OUT;
-    vision_shell_pid[YAW].Type = PID_DERIVATIVE_ON_MEASURE;
-        
-    /* ===== 视觉自瞄 偏航轴(yaw) 内环「角速度环」PID 参数 ===== */
-    vision_core_pid[YAW].Param.KP = VISION_YAW_CORE_PID_KP;
-    vision_core_pid[YAW].Param.KI = VISION_YAW_CORE_PID_KI; 
-    vision_core_pid[YAW].Param.KD = VISION_YAW_CORE_PID_KD; 
-    vision_core_pid[YAW].Param.LimitIntegral = VISION_YAW_CORE_PID_MAX_IOUT; 
-    vision_core_pid[YAW].Param.LimitOutput = VISION_YAW_CORE_PID_MAX_OUT;
-    vision_core_pid[YAW].Type = PID_POSITION;  
-
-
-    /* ===== 底盘跟随云台用的 PID（算底盘旋转量，见 ChassisSpeedSet）===== */
-    follow_pid.Param.KP = FOLLOW_PID_KP;
-    follow_pid.Param.KI = FOLLOW_PID_KI;
-    follow_pid.Param.KD = FOLLOW_PID_KD;
-    follow_pid.Param.LimitIntegral = FOLLOW_PID_MAX_IOUT;
-    follow_pid.Param.LimitOutput = FOLLOW_PID_MAX_OUT;
-    follow_pid.Type = PID_POSITION;
+////    /* ===== 底盘跟随云台用的 PID（算底盘旋转量，见 ChassisSpeedSet）===== */
+////    follow_pid.Param.KP = FOLLOW_PID_KP;
+////    follow_pid.Param.KI = FOLLOW_PID_KI;
+////    follow_pid.Param.KD = FOLLOW_PID_KD;
+////    follow_pid.Param.LimitIntegral = FOLLOW_PID_MAX_IOUT;
+////    follow_pid.Param.LimitOutput = FOLLOW_PID_MAX_OUT;
+////    follow_pid.Type = PID_POSITION;
 		
 		/* ===== GM6020 双环 PID（位置环 + 速度环）参数 ===== */
     gm6020_shell_pid.Param.KP = GM6020_SHELL_PID_KP;
@@ -275,12 +272,29 @@ static void GimbalInit(void)
     gm6020_core_pid.Param.LimitIntegral = GM6020_CORE_PID_MAX_IOUT;
     gm6020_core_pid.Param.LimitOutput  = GM6020_CORE_PID_MAX_OUT;
     gm6020_core_pid.Type = PID_POSITION;
+
+    /* 大 pitch 上电默认进入最安全的“抱闸断电 + 电机零输出”状态。
+     * 此时即使遥控器已经打在折叠/展开档，也要等后续状态机先给抱闸通电、
+     * 等机械释放完成之后，才允许 GM6020 真正向目标角度运动。 */
+    GM6020_BRAKE_POWER_OFF();
+    gimbal.gm6020.target_angle = GM6020_Motor.Data.Angle;
+    gimbal.gm6020.voltage = 0;
+    gimbal.gm6020.brake_state = GM6020_BRAKE_LOCKED;
+    gimbal.gm6020.release_hold_angle = GM6020_Motor.Data.Angle;
+    gimbal.gm6020.gravity_ff_voltage = 0;
+    gimbal.gm6020.state_enter_ms = xTaskGetTickCount();
+    gimbal.gm6020.settle_start_ms = gimbal.gm6020.state_enter_ms;
+
+    /* 清除上电前可能残留的误差、积分和输出。
+     * 否则第一次松闸时可能因为历史积分或目标突变产生不必要的冲击。 */
+    PID_Calc_Clear(&gm6020_shell_pid);
+    PID_Calc_Clear(&gm6020_core_pid);
 		
-    /* 初始化视觉速度估计低通滤波器 */
-    LowPassFilter1p_Init(&vision_vel_lpf[YAW],   VISION_VEL_LPF_ALPHA);
-    LowPassFilter1p_Init(&vision_vel_lpf[PITCH], VISION_VEL_LPF_ALPHA);
-    /* 初始化发给视觉的Pitch角度低通滤波器 */
-    LowPassFilter1p_Init(&pitch_tx_lpf, PITCH_TX_LPF_ALPHA);
+////    /* 初始化视觉速度估计低通滤波器 */
+////    LowPassFilter1p_Init(&vision_vel_lpf[YAW],   VISION_VEL_LPF_ALPHA);
+////    LowPassFilter1p_Init(&vision_vel_lpf[PITCH], VISION_VEL_LPF_ALPHA);
+////    /* 初始化发给视觉的Pitch角度低通滤波器 */
+////    LowPassFilter1p_Init(&pitch_tx_lpf, PITCH_TX_LPF_ALPHA);
 
 }
 /**
@@ -316,30 +330,30 @@ static void GetDataFdb(Gimbal_t* gimbal_fdb)
 
     GetVisionData(&(gimbal.vision_data));
 
-static uint32_t last_check_time = 0;
-uint32_t current_time = HAL_GetTick();
+		static uint32_t last_check_time = 0;
+		uint32_t current_time = HAL_GetTick();
 
-if (current_time - last_check_time >= 10) 
-{  
-    last_check_time = current_time;
+		if (current_time - last_check_time >= 10) 
+		{  
+				last_check_time = current_time;
     
-    if (gimbal_fdb->vision_data.vision_flag == 1) 
-    {
+				if (gimbal_fdb->vision_data.vision_flag == 1) 
+				{
 
-        if (fabs(gimbal_fdb->vision_data.vision_x_offect) < 360.0f) 
-        {
-            vision_last_valid_time[YAW] = current_time;
-        }
+						if (fabs(gimbal_fdb->vision_data.vision_x_offect) < 360.0f) 
+						{
+								vision_last_valid_time[YAW] = current_time;
+						}
         
-        if (fabs(gimbal_fdb->vision_data.vision_y_offect) < 90.0f) 
-        {
-            vision_last_valid_time[PITCH] = current_time;
-        }
-    }
-    else 
-    {
+						if (fabs(gimbal_fdb->vision_data.vision_y_offect) < 90.0f) 
+						{
+								vision_last_valid_time[PITCH] = current_time;
+						}
+				}
+				else 
+				{
 
-    }
+				}
 }
     TimeErrorCalc(gimbal_fdb);
 }
@@ -359,14 +373,14 @@ static void TimeErrorCalc(Gimbal_t* gimbal)
     gimbal->time_err.vision = gimbal->time_new.vision - gimbal->time_last.vision;
 }
 
-int Key_ctrl_flag = 0;
+//int Key_ctrl_flag = 0;
 
-int Key_r_flag = 0;
-int8_t pause = 0;
-int8_t pause_last = 0;
-int8_t UI_force_mode = 0;
-int8_t ui_rotate_mode = 0;
-int8_t ui_rotate_mode_last = 0;
+//int Key_r_flag = 0;
+//int8_t pause = 0;
+//int8_t pause_last = 0;
+//int8_t UI_force_mode = 0;
+//int8_t ui_rotate_mode = 0;
+//int8_t ui_rotate_mode_last = 0;
 
 /**
  * @brief 根据遥控器/键鼠设定云台工作模式（核心的按键逻辑）
@@ -428,7 +442,7 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
 			gimbal_mode_set->robot_mode_set = EXTEND_MODE;
 			gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;   
       gimbal_mode_set->motor_mode[YAW] = ABSOLUTE_MODE;     
-		}
+		}  
 		else if(remote_ctrl.rc.s[1] == 2)
 		{
 			gimbal_mode_set->robot_mode_set = FOLD_MODE;
@@ -496,6 +510,12 @@ static void GimbalModeSet(Gimbal_t* gimbal_mode_set)
         gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;
         gimbal_mode_set->right_click = 0;
     }
+		
+//		    /* 折叠模式必须锁住小 pitch 的绝对角模式，不受 s[0] 影响 */
+//    if (gimbal_mode_set->robot_mode_set == FOLD_MODE)
+//    {
+//        gimbal_mode_set->motor_mode[PITCH] = ABSOLUTE_MODE;
+//    }
 }
 
 
@@ -570,46 +590,211 @@ static void GimbalModeChangeControlTransit(Gimbal_t* mode_change)
     }
 }
 
-static void FoldSet()
+/**
+ * @brief 切换大 pitch 抱闸状态并记录进入时间
+ * @param state 目标状态
+ * @note  RELEASING、SETTLING、ENGAGING 的计时都依赖 state_enter_ms，
+ *        因此所有状态切换统一走这个函数，避免某个分支忘记更新时间戳。
+ */
+static void GM6020EnterBrakeState(Gm6020_BrakeState_e state)
 {
-		if(remote_ctrl.rc.s[1] == 1)
-		{
-			HAL_GPIO_WritePin(GPIOA,GPIO_PIN_0,GPIO_PIN_SET);
-			gm6020_locked = 0;
-			return;
-		}
-		else if(remote_ctrl.rc.s[1] == 3)
-		{
-				gimbal.gm6020.target_angle = GM6020_EXTEND_ANGLE;
-		}
-		else if(remote_ctrl.rc.s[1] == 2)
-		{
-				gimbal.gm6020.target_angle = GM6020_FOLD_ANGLE;
-		}
-		else
-		{			
-		  	gimbal.gm6020.target_angle = GM6020_Motor.Data.Angle;
-		}
+    gimbal.gm6020.brake_state = state;
+    gimbal.gm6020.state_enter_ms = xTaskGetTickCount();
+}
+
+/**
+ * @brief 计算大 pitch 到最终目标角度的最短角度误差
+ * @return 角度误差绝对值，单位：度
+ * @note  GM6020 编码器角度会在 -180°~180° 之间回绕。若直接相减，
+ *        在过零点附近可能得到接近 360° 的假误差，导致误判为需要大幅运动。
+ *        这里先调用 PreventFullCircleConstrain 选择最短路径，再取绝对值。
+ */
+static float GM6020GetAngleError(void)
+{
+    float angle_set = PreventFullCircleConstrain(gimbal.gm6020.target_angle, GM6020_Motor.Data.Angle);
+    return fabsf(angle_set - GM6020_Motor.Data.Angle);
+}
+
+/**
+ * @brief 大 pitch 抱闸时序状态机
+ * @note  正常流程：
+ *          LOCKED -> RELEASING -> MOVING -> SETTLING -> ENGAGING -> LOCKED
+ *        运动阶段要求角度和转速同时到位，并连续稳定后才断抱闸。
+ */
+
+static void GM6020BrakeStateUpdate(void)
+{
+    uint32_t now = xTaskGetTickCount();
+    uint32_t state_elapsed = now - gimbal.gm6020.state_enter_ms;
+    float err;
+
+		//如果不是伸展/收缩模式：就关闭抱闸器 +  让目标角度等于实际角度  +电压给0  +  切换下一个模式
+    if (gimbal.robot_mode_set != EXTEND_MODE && gimbal.robot_mode_set != FOLD_MODE)
+    {
+        GM6020_BRAKE_POWER_OFF();
+        gimbal.gm6020.target_angle = GM6020_Motor.Data.Angle;
+        gimbal.gm6020.voltage = 0;
+        GM6020EnterBrakeState(GM6020_BRAKE_LOCKED);
+        return;
+    }
 		
-		float err = fabsf(gimbal.gm6020.target_angle - GM6020_Motor.Data.Angle);
 		
-		if(gm6020_locked)
-		{
-			if(err > GM6020_UNLOCK_DEADBAND)
-			{
-				HAL_GPIO_WritePin(GPIOA,GPIO_PIN_0,GPIO_PIN_SET);  //松开
-				gm6020_locked = 0;
-			}
-			else
-			{
-					if(err < GM6020_LOCK_DEADBAND)
-					{
-						HAL_GPIO_WritePin(GPIOA,GPIO_PIN_0,GPIO_PIN_RESET);
-						gm6020_locked = 1;
-						gimbal.gm6020.target_angle = GM6020_Motor.Data.Angle;
-					}
-			}
-		}
+    // 没有有效 GM6020 反馈时，不允许闭环运动
+    if (!GM6020_Motor.Data.Initlized ||
+        (uint32_t)(now - GM6020_Motor.Motor_time) > GM6020_FEEDBACK_TIMEOUT_MS)
+    {
+        GM6020_BRAKE_POWER_OFF();
+        gimbal.gm6020.voltage = 0;
+        GM6020EnterBrakeState(GM6020_BRAKE_LOCKED);
+        return;
+    }
+
+    gimbal.gm6020.target_angle = (gimbal.robot_mode_set == EXTEND_MODE) ?
+                                 GM6020_EXTEND_ANGLE : GM6020_FOLD_ANGLE;
+    err = GM6020GetAngleError();
+
+    switch (gimbal.gm6020.brake_state)
+    {
+        case GM6020_BRAKE_LOCKED:
+            // 锁止状态：抱闸断电，误差超过 UNLOCK_DEADBAND 才松闸
+            GM6020_BRAKE_POWER_OFF();
+            gimbal.gm6020.voltage = 0;
+            if (err > GM6020_UNLOCK_DEADBAND)  //如果误差大于7度就松开重新动
+            {
+                //记录松闸前角度，RELEASING 阶段用它托住机构。
+                gimbal.gm6020.release_hold_angle = GM6020_Motor.Data.Angle;
+                GM6020_BRAKE_POWER_ON();
+                PID_Calc_Clear(&gm6020_shell_pid);
+                PID_Calc_Clear(&gm6020_core_pid);
+                GM6020EnterBrakeState(GM6020_BRAKE_RELEASING);
+            }
+            break;
+
+        case GM6020_BRAKE_RELEASING:
+            // 抱闸已通电，等待机械释放；此时 PID 保持 release_hold_angle。
+            GM6020_BRAKE_POWER_ON();
+            if (state_elapsed >= GM6020_BRAKE_RELEASE_WAIT_MS)
+            {
+                GM6020EnterBrakeState(GM6020_BRAKE_MOVING);
+            }
+            break;
+
+        case GM6020_BRAKE_MOVING:
+            /* 正常运动：抱闸保持通电，进入稳定窗口后先观察，不立即锁死。 */
+            GM6020_BRAKE_POWER_ON();
+            if (err <= GM6020_LOCK_DEADBAND &&
+                fabsf((float)GM6020_Motor.Data.Velocity) <= GM6020_BRAKE_SETTLE_SPEED_RPM)
+            {
+                gimbal.gm6020.settle_start_ms = now;
+                GM6020EnterBrakeState(GM6020_BRAKE_SETTLING);
+            }
+            break;
+
+        case GM6020_BRAKE_SETTLING:
+            /* 稳定观察：角度或转速再次超出范围时，退回 MOVING。 */
+            GM6020_BRAKE_POWER_ON();
+            if (err > GM6020_UNLOCK_DEADBAND ||
+                fabsf((float)GM6020_Motor.Data.Velocity) > GM6020_BRAKE_SETTLE_SPEED_RPM)
+            {
+                GM6020EnterBrakeState(GM6020_BRAKE_MOVING);
+            }
+            else if (err > GM6020_LOCK_DEADBAND)
+            {
+                /* 处在死区迟滞范围内，重新计算连续稳定时间。 */
+                gimbal.gm6020.settle_start_ms = now;
+            }
+            else if ((uint32_t)(now - gimbal.gm6020.settle_start_ms) >= GM6020_BRAKE_SETTLE_TIME_MS)
+            {
+                /* 连续稳定完成：先断抱闸，再短时保持力矩等待机械咬合。 */
+                GM6020_BRAKE_POWER_OFF();
+                GM6020EnterBrakeState(GM6020_BRAKE_ENGAGING);
+            }
+            break;
+				
+						//（这个状态可以防止抱闸器断电前大pitch由于重力先掉下去一点）
+        case GM6020_BRAKE_ENGAGING:
+            //抱闸已断电，但电机仍保持目标，防止机械抱闸夹紧前下滑。
+            GM6020_BRAKE_POWER_OFF();
+            if (err > GM6020_UNLOCK_DEADBAND)
+            {
+                //如果大pitch明显下滑 或目标角度又变了 就重新通电
+                gimbal.gm6020.release_hold_angle = GM6020_Motor.Data.Angle;  //保持当前角度
+                GM6020_BRAKE_POWER_ON();
+                PID_Calc_Clear(&gm6020_shell_pid);
+                PID_Calc_Clear(&gm6020_core_pid);
+                GM6020EnterBrakeState(GM6020_BRAKE_RELEASING);
+            }
+            else if (state_elapsed >= GM6020_BRAKE_ENGAGE_HOLD_MS)
+            {
+                GM6020EnterBrakeState(GM6020_BRAKE_LOCKED);
+            }
+            break;
+
+        default:
+            GM6020_BRAKE_POWER_OFF();
+            gimbal.gm6020.voltage = 0;
+            GM6020EnterBrakeState(GM6020_BRAKE_LOCKED);
+            break;
+    }
+}
+
+static void PitchFeedbackModeSet(Gimbal_t*pitch_feedback)
+{
+//	if(pitch_feedback->robot_mode_set != EXTEND_MODE && pitch_feedback->robot_mode_set!=FOLD_MODE)
+//  {
+//		return;
+//	}
+//	if(pitch_feedback->gm6020.brake_state!=GM6020_BRAKE_LOCKED)
+//	{
+//		pitch_feedback->motor_mode[PITCH] = RELATIVE_MODE;
+//	}
+	if(pitch_feedback->robot_mode_set == FOLD_MODE)
+	{
+		pitch_feedback->motor_mode[PITCH] = ABSOLUTE_MODE;
+	}
+}
+/**
+ * @brief GM6020 双环 PID（位置环 + 速度环），算出电压
+ * @note  外环 位置环：角度误差(°) → 目标转速(rpm)
+ *        内环 速度环：转速误差(rpm) → 电压
+ *        仅在松闸、运动、稳定和机械咬合阶段允许出力。
+ */
+static void GM6020PidCalc(void)
+{
+    /* 只有以下阶段允许 GM6020 出力。 */
+    if (gimbal.robot_mode_set == ZERO_FORCE_MODE ||
+        (gimbal.gm6020.brake_state != GM6020_BRAKE_RELEASING &&
+         gimbal.gm6020.brake_state != GM6020_BRAKE_MOVING &&
+         gimbal.gm6020.brake_state != GM6020_BRAKE_SETTLING &&
+         gimbal.gm6020.brake_state != GM6020_BRAKE_ENGAGING))
+    {
+        gimbal.gm6020.voltage = 0;
+        gimbal.gm6020.gravity_ff_voltage = 0;
+        return;
+    }		
+
+    /* 松闸等待时保持当前角度，进入 MOVING 后才追最终目标。 */
+    float angle_set = (gimbal.gm6020.brake_state == GM6020_BRAKE_RELEASING) ?
+                      gimbal.gm6020.release_hold_angle : gimbal.gm6020.target_angle;
+
+    /* 防止跨 ±180° 时绕远路。 */
+    angle_set = PreventFullCircleConstrain(angle_set, GM6020_Motor.Data.Angle);
+
+    /* 外环位置环：角度误差 -> 目标转速。 */
+    float target_rpm = PID_Calculate(&gm6020_shell_pid, angle_set, GM6020_Motor.Data.Angle);
+
+    /* 内环速度环：目标转速与实际转速的误差 -> GM6020 电压。 */
+    float pid_voltage = PID_Calculate(&gm6020_core_pid, target_rpm, (float)GM6020_Motor.Data.Velocity);
+
+    /* 重力前馈直接叠加到最终电压：
+     * RELEASING 阶段位置误差为 0，PID 本身几乎没有输出，
+     * 这里的前馈负责在机械抱闸松开前先托住大 pitch。 */
+    float gravity_ff = GM6020_GRAVITY_FF_SIGN * GM6020_GRAVITY_FF_VOLTAGE;
+    float total_voltage = pid_voltage + gravity_ff;
+    VAL_LIMIT(total_voltage, -GM6020_CORE_PID_MAX_OUT, GM6020_CORE_PID_MAX_OUT);
+
+    gimbal.gm6020.gravity_ff_voltage = (int16_t)gravity_ff;
+    gimbal.gm6020.voltage = (int16_t)total_voltage;
 }
 /**
  * @brief 计算俯仰轴(pitch)的目标角度
@@ -622,31 +807,40 @@ static void PitchAngleRefSet(Gimbal_t* angle_set)
     float add_angle = 0;
     if (angle_set->robot_mode_set == ZERO_FORCE_MODE)
     {
-        pitch_ref_vel = 0.0f;   //【新增】无力模式无指令，参考速度清零
+        //pitch_ref_vel = 0.0f;   //【新增】无力模式无指令，参考速度清零
         return;
     }
 
     else if (angle_set->robot_mode_set == EXTEND_MODE)
     {   
-
-        // 俯仰目标角增量 = 摇杆输入 之和：【DT7】ch[1](右摇杆上下) + 【DT7】mouse.y(鼠标Y)
-        //                               +【图传VT13】Channel[1] +【图传VT13】Mouse.
+				/*
+				* 只有大 pitch 已完成动作、稳定锁止后，才允许遥控器控制小 pitch。
+				* 此时使用 IMU 绝对角反馈。
+				*/
+			  if(angle_set->motor_mode[PITCH]==ABSOLUTE_MODE)
+				{
+        // 俯仰目标角增量 = 摇杆输入 之和：【DT7】ch[1](右摇杆上下) + 【DT7】mouse.y(鼠标Y)+【图传VT13】Channel[1] +【图传VT13】Mouse.
         add_angle = -(float)remote_ctrl.rc.ch[1] / CHANNEL_PITCH_SCALE_FACTOR - (float)VT13_Info.RC.Channel[1] / CHANNEL_PITCH_SCALE_FACTOR - (float)remote_ctrl.mouse.y / MOUSE_SCALE_FACTOR - VT13_Info.Mouse.Y / MOUSE_SCALE_FACTOR;
         addPitchAngle(angle_set, -add_angle);
 
         //【新增】速度前馈：把本周期角度增量换算成参考角速度(°/s)。
         //        addPitchAngle 传的是 -add_angle，所以实际增量是 -add_angle，参考速度也跟着取反。
-        pitch_ref_vel = -add_angle / GIMBAL_CONTROL_PERIOD_S;
-    }
+        //pitch_ref_vel = -add_angle / GIMBAL_CONTROL_PERIOD_S;
+    
+				}
+		}
 		else if (angle_set->robot_mode_set == FOLD_MODE)
     {   
+			if (angle_set->motor_mode[PITCH] == ABSOLUTE_MODE)
+      {
 					angle_set->angle.absolute_set[PITCH] = PITCH_LEVEL_ANGLE;
-					pitch_ref_vel = 0.0f;
+					//pitch_ref_vel = 0.0f;
+		  }
     }
     else if (angle_set->robot_mode_set == VISION_FOLLOW)
     {
         angle_set->vision_data.angle_set[PITCH] = 0;
-        pitch_ref_vel = 0.0f;   //【新增】视觉模式走 vision_target_vel 前馈，手动前馈关闭
+        //pitch_ref_vel = 0.0f;   //【新增】视觉模式走 vision_target_vel 前馈，手动前馈关闭
     }
 }
 
@@ -929,18 +1123,20 @@ static void YawPidCalc(Gimbal_t* yaw_pid_calc)
     }
 }
 
-
+  
 /**
  * @brief 给俯仰轴目标角度累加一个增量，并做限幅
  * @note  绝对模式累加到 absolute_set（限幅 PITCH_ABSOLUTE_MIN/MAX），
  *        相对模式累加到 relative_set（限幅 PITCH_RELATIVE_MIN/MAX）。
  *        限幅范围定义在 Control_Task.h，调车改那里。
  */
+uint16_t a=0;
 static void addPitchAngle(Gimbal_t* pitch, float add)
 {
     if (pitch->motor_mode[PITCH] == ABSOLUTE_MODE)
     {
         pitch->angle.absolute_set[PITCH] += add;
+			  a = pitch->angle.absolute_set[PITCH];
         MinMaxConstrain(&pitch->angle.absolute_set[PITCH], PITCH_ABSOLUTE_MIN_ANGLE, PITCH_ABSOLUTE_MAX_ANGLE);
     }  
     else if (pitch->motor_mode[PITCH] == RELATIVE_MODE)
@@ -983,7 +1179,7 @@ float Pitch_set = 0, Yaw_set = 0;
  */
 static void yawpidCalc(Gimbal_t* pid_calc, Axis_e axis)
 {
-    float angle_set = 0.0f;
+    float angle_set = 0.0f;    
     uint32_t current_time = HAL_GetTick();
     uint32_t data_timeout = current_time - vision_last_valid_time[axis];
 		
@@ -1134,8 +1330,10 @@ static void pitchpidCalc(Gimbal_t* pid_calc, Axis_e axis)
         {
             angle_set = PreventFullCircleConstrain(pid_calc->angle.absolute_set[axis], pid_calc->angle.absolute_fdb[axis]);
             //【新增】速度前馈：角度环输出 + 参考角速度×增益，直接喂给内环速度设定
-            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.absolute_fdb[axis])
-                                     + pitch_vel_ff_gain * pitch_ref_vel;
+//					pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.absolute_fdb[axis])
+//																		 + pitch_vel_ff_gain * pitch_ref_vel;
+					
+						pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.absolute_fdb[axis]);
             pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
         }
     }
@@ -1146,37 +1344,19 @@ static void pitchpidCalc(Gimbal_t* pid_calc, Axis_e axis)
         if (axis == PITCH)
         {
             angle_set = PreventFullCircleConstrain(pid_calc->angle.relative_set[axis], pid_calc->angle.relative_fdb[axis]);
-            //【新增】速度前馈：同绝对模式，角度环输出 + 参考角速度×增益喂给内环速度设定
-            pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.relative_fdb[axis])
-                                     + pitch_vel_ff_gain * pitch_ref_vel;
+//            //【新增】速度前馈：同绝对模式，角度环输出 + 参考角速度×增益喂给内环速度设定
+//          pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.relative_fdb[axis])
+//                                     + pitch_vel_ff_gain * pitch_ref_vel;
+					
+						pid_calc->gyro.set[axis] = PID_Calculate(&gimbal_shell_pid[axis], angle_set, pid_calc->angle.relative_fdb[axis]);
+
             pid_calc->motor_set[axis].Torque = PID_Calculate(&gimbal_core_pid[axis], pid_calc->gyro.set[axis], pid_calc->gyro.fdb[axis]);
         }
         
     }
 }
 
-/**
- * @brief GM6020 双环 PID（位置环 + 速度环），算出电压
- * @note  外环 位置环：角度误差(°) → 目标转速(rpm)
- *        内环 速度环：转速误差(rpm) → 电压
- *        gm6020_enable=0 时电压恒 0（安全，不发力）。
- */
-static void GM6020PidCalc(void)
-{
-    if (gimbal.robot_mode_set == ZERO_FORCE_MODE || gm6020_locked)
-    {
-        gimbal.gm6020.voltage = 0;
-        return;
-    }		
-    // 防止目标角度和反馈角度跨 ±180° 绕大圈（走最短的近路）
-    float angle_set = PreventFullCircleConstrain(gimbal.gm6020.target_angle, GM6020_Motor.Data.Angle);
 
-    // 外环 位置环：角度误差 → 目标转速(rpm)
-    float target_rpm = PID_Calculate(&gm6020_shell_pid, angle_set, GM6020_Motor.Data.Angle);
-
-    // 内环 速度环：转速误差 → 电压
-    gimbal.gm6020.voltage = (int16_t)PID_Calculate(&gm6020_core_pid, target_rpm, (float)GM6020_Motor.Data.Velocity);
-}
 
 
 

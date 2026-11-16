@@ -88,7 +88,7 @@
 #define Radius 2.3961f
 
 
-/* 底盘 4 个轮毂电机共用的「速度环」PID 参数（PID_Calculate 用）：
+/* 底盘 4 个轮电机共用的「速度环」PID 参数（PID_Calculate 用）：
  *  KP=比例  KI=积分  KD=微分；MAX_IOUT=积分限幅  MAX_OUT=输出限幅。
  *  注意：这是速度环（设定=目标转速 RPM，反馈=实际转速 RPM，输出=电流指令）。 */
 #define CHASSIS_MOTOR_PID_KP 14
@@ -204,14 +204,18 @@ typedef struct
         float Pitch;    /* 底盘等效俯仰角 (deg)，由 IMU 按车头朝向换算 */
         float Roll;     /* 底盘等效横滚角 (deg) */
     }Angle;
+		
     DJI_Motor_Info_Typedef chassis_motor_fdb[4];   /* 4 个 M3508 轮毂电机反馈 */
-    DM_Motor_Info_Typedef yaw_motor_fdb;           /* 达妙 DM4310 yaw 电机反馈 */
     DJI_Motor_Info_Typedef sht_motor_fdb;          /* 拨弹(发射)电机反馈 */
-
+		
     DJI_Motor_Contorl_Info_Typedef chassis_motor_set[4];  /* 4 个轮毂电机设定 */
+		
+		DM_Motor_Info_Typedef yaw_motor_fdb;           /* 达妙 DM4310 yaw 电机反馈 */
+		
     SuperPower_Info_Typedef super_power;           /* 超级电容数据 */
     int super_power_flag;                          /* 超电状态标志 */
     int reset_flag;                                /* 复位标志 */
+		
     uint32_t chassis_speed_set_time[3];            /* X/Y/Z 速度设定的时间戳 */
     float chassis_xyz_set[3];                      /* 云台发来的 X/Y/Z 速度设定 */
     float chassis_xyz_set_f[3];                    /* 坐标系旋转后的 X/Y/Z 设定（底盘坐标系） */
@@ -219,7 +223,7 @@ typedef struct
     Gimbal_Info_Typedef gimbal_data;               /* 云台状态数据 */
     Referee_System_Info_TypeDef ref_data;          /* 裁判系统数据 */
 
-    float ChassisSpeedFdb[3];                      /* 底盘 X/Y/Z 实际速度反馈（滤波后） */
+    //float ChassisSpeedFdb[3];                    // 底盘 X/Y/Z 实际速度反馈（滤波后） 没用到先注释
 
     Time_t time_now;       /* 本次时间戳 */
     Time_t time_last;      /* 上次时间戳 */
@@ -229,7 +233,7 @@ typedef struct
         float Cos[2];      /* 坡度补偿：Pitch/Roll 的余弦 */
         float Sin[2];      /* 坡度补偿：Pitch/Roll 的正弦 */
         float K_angle[4];  /* 坡度补偿系数（分配到 4 个轮子） */
-    } Slope;
+    }Slope;
 
     Power_Ctrl_Typedef PowerCtrl[2];   /* 功率控制系数（本工程只用 [1]） */
 } Chassis_Info_Typedef;
@@ -245,6 +249,8 @@ typedef struct
 
 /* 底盘控制核心全局变量（Control_Task.c 中定义） */
 extern Chassis_Info_Typedef chassis;
+
+extern LegacyEncoder g_enc[4];  //四个编码器实例 
 
 /* 各电机反馈获取函数：从 Motor.c 的全局电机结构体拷贝反馈，返回该电机的更新时间戳 */
 extern uint32_t GetChassisMotor1Fdb(DJI_Motor_Info_Typedef * motor);

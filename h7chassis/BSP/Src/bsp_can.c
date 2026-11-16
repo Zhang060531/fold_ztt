@@ -73,7 +73,6 @@ void Sent_Superpower_Data(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,float set_power);
 FDCAN_RxFrame_TypeDef FDCAN_RxFIFO0Frame;
 FDCAN_RxFrame_TypeDef FDCAN_RxFIFO1Frame;
 
-LegacyEncoder g_enc[4];
 
 /* 超级电容/电管功率数据全局实例：接收帧 0x211 解析结果存这里 */
 SuperPower_Info_Typedef PowerData =
@@ -114,10 +113,7 @@ Gimbal_Info_Typedef GiambalData =
     },
 
 };
-Encoder_Info_Typedef EncoderData =
-{
-	.FDCANFrame = {.RxIdentifier = 0x001}, //编码器ID=1
-};
+
 
 /**
  * @brief FDCAN1 发送帧(CLASSIC CAN)：大疆电机电流指令
@@ -241,11 +237,6 @@ void BSP_FDCAN_Init(void)
 
     HAL_FDCAN_Start(&hfdcan3);
 		
-		/* 初始化 4 个磁编码器：绑定 FDCAN3，ID 分别 1/2/3/4 */
-    LegacyEncoder_Init(&g_enc[0], &hfdcan3, 1);
-    //LegacyEncoder_Init(&g_enc[1], &hfdcan3, 2);
-    //LegacyEncoder_Init(&g_enc[2], &hfdcan3, 3);
-    //LegacyEncoder_Init(&g_enc[3], &hfdcan3, 4);
 }
 
 /**
@@ -305,22 +296,7 @@ void SuperPower_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, SuperPower_In
 
 //
 }
-//////////////////////////////////////////////////////////////////////////////////////////////////////////
-void Encoder_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, Encoder_Info_Typedef *EncoderData)
-{
-    if (*Identifier != EncoderData->FDCANFrame.RxIdentifier) return;
 
-    /* 角度 = 4 字节 little-endian IEEE-754 float（手册 §9，用 memcpy 避免对齐/别名问题） */
-    memcpy(&EncoderData->angle_deg, Rx_Buf, 4);
-    EncoderData->update_time = HAL_GetTick();
-}
-
-uint32_t GetEncoderAngleDeg(float *angle)
-{
-    *angle = EncoderData.angle_deg;
-    return EncoderData.update_time;
-}
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
   * @brief  解析云台状态帧(0x22)并更新 GiambalData
@@ -455,7 +431,11 @@ static void FDCAN2_RxFifo1RxHandler(uint32_t *Identifier, uint8_t Data[8])
     Gimbal_Info_Update(Identifier, Data, &GiambalData);           /* 云台状态(收 0x22) */
     Chassis_Info_Update(Identifier, Data, &ChassisData);          /* 底盘速度指令(收 0x21) */
 	  DM_Motor_Info_Update(Identifier, Data, &DM_4310_Motor[0]);   /* DM4310 回传(收 0x12) */
-
+		
+		DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[0]);   /* 底盘 1 号轮电机(收 0x201) */
+    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[1]);   /* 底盘 2 号轮电机(收 0x202) */
+    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[2]);   /* 底盘 3 号轮电机(收 0x203) */
+    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[3]);   /* 底盘 4 号轮电机(收 0x204) */
 }
 
 /**
