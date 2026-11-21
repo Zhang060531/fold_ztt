@@ -41,6 +41,8 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+
+
 /* 底盘控制结构体、裁判系统数据（外部定义） */
 extern Chassis_Info_Typedef chassis;
 extern Referee_System_Info_TypeDef Referee_System_Info;
@@ -68,8 +70,17 @@ void CAN_Task(void const * argument)
         //CAN_Task_SysTick = osKernelSysTick();   /* 读取系统 tick */
 			  CAN_Task_SysTick = xTaskGetTickCount();
         /* 1. 发送 4 个轮电机电流指令（CAN 0x200，给 C620 电调） */
-        TransmitChassisMotorCurrent(&FDCAN1_TxFrame, chassis.chassis_motor_set[M1].current_set, chassis.chassis_motor_set[M2].current_set, chassis.chassis_motor_set[M3].current_set, chassis.chassis_motor_set[M4].current_set);
-			  Transmit_Shoot_Info(&FDCAN2_TxFrame, Referee_System_Info.shoot_data.initial_speed, Referee_System_Info.power_heat_data.shooter_17mm_barrel_heat,Referee_System_Info.robot_status.shooter_barrel_heat_limit,Referee_System_Info.robot_status.shooter_barrel_cooling_value);   /* 2. 发送发射数据（CAN 0x23，给云台） */
+        TransmitWheelMotorCurrent(&FDCAN1_TxFrame, chassis.wheel_motor_set[M1].current_set,
+																									 chassis.wheel_motor_set[M2].current_set,
+																									 chassis.wheel_motor_set[M3].current_set,
+																									 chassis.wheel_motor_set[M4].current_set);
+			  
+				TransmitSteerMotorCurrent(&FDCAN2_TxFrame,chassis.steer_motor_set[Forward_R].current_set,
+																									chassis.steer_motor_set[Forward_L].current_set,
+																									chassis.steer_motor_set[Back_R].current_set,
+																									chassis.steer_motor_set[Back_L].current_set);
+			
+				Transmit_Shoot_Info(&FDCAN2_TxFrame, Referee_System_Info.shoot_data.initial_speed, Referee_System_Info.power_heat_data.shooter_17mm_barrel_heat,Referee_System_Info.robot_status.shooter_barrel_heat_limit,Referee_System_Info.robot_status.shooter_barrel_cooling_value);   /* 2. 发送发射数据（CAN 0x23，给云台） */
          
         /* 3. 发送拨弹电机电流（CAN 0x1ff） */
         TransmitShootMotorCurrent(&FDCAN1_TxFrame, chassis.gimbal_data.current_set);
@@ -81,7 +92,6 @@ void CAN_Task(void const * argument)
         }
         osDelay(1);
     }
-
 }
 
 

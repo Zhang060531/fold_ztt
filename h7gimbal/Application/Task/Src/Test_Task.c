@@ -91,6 +91,14 @@ void Test_Task(void const * argument)
 //				gm6020_shell_pid.Output,           // CH3: 目标转速(=外环输出)
 //				(float)GM6020_Motor.Data.Velocity  // CH4: 实际转速
 //		);
+
+			USART_Vofa_Justfloat_Transmit4(
+		  gimbal.gm6020.brake_state,  
+			gimbal.gm6020.voltage,             // CH3: 
+			gimbal.angle.absolute_fdb[PITCH],
+			0
+		);
+
 		osDelay(1);   /* 发送周期 1ms(1kHz)；若 VoFa 曲线抖动可改成 osDelay(2) */
 	}
 }

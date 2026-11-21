@@ -47,7 +47,9 @@
   ..\Components\Device\Inc\Referee_System.h \
   ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
   ..\Drivers\CMSIS\Include\cmsis_compiler.h \
-  ..\Components\Algorithm\Inc\RLS.h ..\Application\Task\Inc\INS_Task.h \
+  ..\Components\Algorithm\Inc\RLS.h \
+  ..\Components\Algorithm\Inc\User_lib.h \
+  ..\Application\Task\Inc\INS_Task.h \
   ..\Components\Device\Inc\Remote_Control.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\FreeRTOS.h \
   ..\Core\Inc\FreeRTOSConfig.h \

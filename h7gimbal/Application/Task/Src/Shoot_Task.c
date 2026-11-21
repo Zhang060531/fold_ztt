@@ -52,7 +52,7 @@
  * 回退方法（效果不好时）：把下面两处 [改动1] 的 SHOOT_FEED_MAX_RPM
  *       改回 SPEED_CTRL_MAX_RPM，或直接删掉本宏即可。摩擦轮不受影响。
  * 调参：起始 3000，按"不空拨的最高转速"实测 ±500 微调。
- * ==================================================================== */
+ * ==================================================================== */ 
 #define SHOOT_FEED_MAX_RPM        5200.0f  // 拨弹盘安全供弹转速上限(实测调)
 #define FRICTION_MOTOR_SPEED_SET  6200     // 摩擦轮转速
 
@@ -132,11 +132,11 @@ static void Shoot_Get_Feedback(Shoot_t* shoot)
     GetMotorFR1Fdb(&shoot->fri_motor_fdb[FR1]);
     GetMotorFR2Fdb(&shoot->fri_motor_fdb[FR2]);
 
-    shoot->fri_motor_fdb[FR1].Data.Velocity_filter = filter_FR1(Int16ToFloat(shoot->fri_motor_fdb[FR1].Data.Velocity), FRI_FILTER);
-    shoot->fri_motor_fdb[FR2].Data.Velocity_filter = filter_FR2(Int16ToFloat(shoot->fri_motor_fdb[FR2].Data.Velocity), FRI_FILTER);
+    shoot->fri_motor_fdb[FR1].Data.Velocity_filter = filter_LPF1(Int16ToFloat(shoot->fri_motor_fdb[FR1].Data.Velocity), FRI_FILTER);
+    shoot->fri_motor_fdb[FR2].Data.Velocity_filter = filter_LPF1(Int16ToFloat(shoot->fri_motor_fdb[FR2].Data.Velocity), FRI_FILTER);
 
     GetShootMotorFdb(&shoot->sht_motor_fdb);  //获得拨盘电机数据
-    shoot->sht_motor_fdb.Data.Velocity_filter = filter_sht(Int16ToFloat(shoot->sht_motor_fdb.Data.Velocity), FRI_FILTER);
+    shoot->sht_motor_fdb.Data.Velocity_filter = filter_LPF1(Int16ToFloat(shoot->sht_motor_fdb.Data.Velocity), FRI_FILTER);
     shoot->shoot_motor.continuous_angle_fdb = shoot->sht_motor_fdb.Data.Continuous_Angle;
 
     // 2. 计算摩擦轮加速度用于前馈
@@ -144,7 +144,8 @@ static void Shoot_Get_Feedback(Shoot_t* shoot)
     float dt = (current_tick - last_ff_tick) / 1000.0f;
     if (dt > 0.0f && dt < 0.1f)
     {
-        for (int i = 0; i < FRICTION_MOTOR_COUNT; i++) {
+        for (int i = 0; i < FRICTION_MOTOR_COUNT; i++) 
+			  {
             float current_rpm = shoot->fri_motor_fdb[i].Data.Velocity_filter;
             fri_accel[i] = (current_rpm - last_fri_rpm[i]) / dt;
             last_fri_rpm[i] = current_rpm;
@@ -154,11 +155,15 @@ static void Shoot_Get_Feedback(Shoot_t* shoot)
 
     // 3. 本地热量更新
     float heat_dt = (current_tick - last_heat_tick) / 1000.0f;
-    if (heat_dt > 0.0f && heat_dt < 0.5f) {
-        if (shoot->shooter_barrel_heat != last_referee_heat) {
+    if (heat_dt > 0.0f && heat_dt < 0.5f) 
+		{
+        if (shoot->shooter_barrel_heat != last_referee_heat) 
+				{
             local_heat = shoot->shooter_barrel_heat + heat_dt * shoot->shooter_barrel_cooling_value;
             last_referee_heat = shoot->shooter_barrel_heat;
-        } else {
+        } 
+				else 
+				{
             local_heat -= shoot->shooter_barrel_cooling_value * heat_dt;
         }
     }
@@ -197,14 +202,14 @@ static void Shoot_Input_Read(Shoot_t* shoot)
     //        另外鼠标左键随时可手动补一发。
     //    手动时（没进自瞄）：
     //        鼠标左键 或 UI 扳机键 直接触发。
-    if (REF_mouse_right == 1 || VT13_Info.RC.Switch == 2)
-		{      //进入vision自瞄模式
+    if (REF_mouse_right == 1 || VT13_Info.RC.Switch == 2)  //进自瞄时
+		{ 
         fire_request = ((Vision_Data.shoot_flag == 1 && REF_mouse_right == 1)
-                        || (ui_shoot_mode == 1 && Vision_Data.shoot_flag == 1)
+                        || (Vision_Data.shoot_flag == 1 && ui_shoot_mode == 1)
                         || (REF_mouse_left == 1) || dt7_fire);
     } 
-		else 
-		{    //没进入自瞄模式
+		else   //没进自瞄时
+		{    
         fire_request = REF_mouse_left == 1 || ui_shoot_mode == 1 || dt7_fire;
     }
 }
@@ -221,7 +226,8 @@ Shoot_Mode_e Shoot_Mode_Update(Shoot_t* shoot)
      *   (c) 当前状态是 SHOOT_READY（上一发已经拨到位）
      */
     uint8_t heat_permit = (shoot->shooter_barrel_heat_limit - local_heat) >= (HEAT_17MM * 2.0f);
-    if (fire_request && heat_permit && new_mode == SHOOT_READY) {
+    if (fire_request && heat_permit && new_mode == SHOOT_READY) 
+		{
         target_continuous_angle += SHOOT_ANGLE_PER_BULLET;   // 拨一发：目标角 +45°
         local_heat += HEAT_17MM;                             // 加热量
         new_mode = SHOOT_NORMAL;
@@ -241,7 +247,8 @@ Shoot_Mode_e Shoot_Mode_Update(Shoot_t* shoot)
 //		}
       
     if (((REF_key_robot_mode & KEY_PRESSED_OFFSET_F) > 0 && (REF_key_robot_mode_last & KEY_PRESSED_OFFSET_F) == 0)
-        || (ui_fri_mode == 1 && ui_fri_mode_last == 0)) {
+        || (ui_fri_mode == 1 && ui_fri_mode_last == 0)) 
+		{
         if (new_mode == SHOOT_STOP) new_mode = SHOOT_READY;
         else if (new_mode == SHOOT_READY || new_mode == SHOOT_NORMAL) new_mode = SHOOT_STOP;
     }
@@ -337,11 +344,7 @@ static void Shoot_PID_Calculate(Shoot_t* shoot)
 {
     // 双摩擦轮速度环PID计算 + 前馈补偿
     for (int i = 0; i < FRICTION_MOTOR_COUNT; i++) {
-        float pid_out = PID_Calculate(
-            &fri_motor_pid[i],
-            Int16ToFloat(shoot->fri_motor_set[i].speed_rpm_set),
-            Int16ToFloat(shoot->fri_motor_fdb[i].Data.Velocity)
-        );
+        float pid_out = PID_Calculate(&fri_motor_pid[i],Int16ToFloat(shoot->fri_motor_set[i].speed_rpm_set),Int16ToFloat(shoot->fri_motor_fdb[i].Data.Velocity));
         // 加速度前馈：目标转速为 0 时不补
         float ff_out = (shoot->fri_motor_set[i].speed_rpm_set == 0) ? 0.0f : fri_accel[i] * FRI_ACCEL_FF_K;
 
@@ -354,15 +357,12 @@ static void Shoot_PID_Calculate(Shoot_t* shoot)
     // (INVERSION 反转清卡的纯速度环处理已删除，待后续补充)
     float angle_err_abs = fabs(shoot->shoot_motor.continuous_angle_set - current_continuous_angle);
     int allow_bullet_num = (shoot->shooter_barrel_heat_limit - local_heat) / HEAT_17MM;  //还能打几发
-    if (allow_bullet_num < 4.5) {
+    if (allow_bullet_num < 4.5) 
+		{
         shoot->shoot_motor.continuous_angle_set = current_continuous_angle;  //把当前角度赋给目标角度 防止超热量
     }
 
-    float pos_output = PID_Calculate(
-        &sht_motor_shell_pid,
-        shoot->shoot_motor.continuous_angle_set,
-        current_continuous_angle
-    );
+    float pos_output = PID_Calculate(&sht_motor_shell_pid,shoot->shoot_motor.continuous_angle_set,current_continuous_angle);
 
     if (pos_output > SHOOT_FEED_MAX_RPM) pos_output = SHOOT_FEED_MAX_RPM;
     else if (pos_output < -SHOOT_FEED_MAX_RPM) pos_output = -SHOOT_FEED_MAX_RPM;
@@ -376,17 +376,16 @@ static void Shoot_PID_Calculate(Shoot_t* shoot)
         if (pos_output < -800.0f) pos_output = -800.0f;
     }
 
-    float spd_output = PID_Calculate(
-        &sht_motor_core_pid,
-        pos_output,
-        shoot->sht_motor_fdb.Data.Velocity
-    );
+    float spd_output = PID_Calculate(&sht_motor_core_pid,pos_output,shoot->sht_motor_fdb.Data.Velocity);
 
     shoot->sht_motor_set.current_set = spd_output;
 
-    if (shoot->sht_motor_set.current_set > SHOOT_MOTOR_CORE_PID_MAX_OUT) {
+    if (shoot->sht_motor_set.current_set > SHOOT_MOTOR_CORE_PID_MAX_OUT) 
+		{
         shoot->sht_motor_set.current_set = SHOOT_MOTOR_CORE_PID_MAX_OUT;
-    } else if (shoot->sht_motor_set.current_set < -SHOOT_MOTOR_CORE_PID_MAX_OUT) {
+    } 
+		else if (shoot->sht_motor_set.current_set < -SHOOT_MOTOR_CORE_PID_MAX_OUT) 
+		{
         shoot->sht_motor_set.current_set = -SHOOT_MOTOR_CORE_PID_MAX_OUT;
     }
 }

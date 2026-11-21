@@ -29,6 +29,7 @@
  *    优化分配的参数，一般不要动，除非在做功率管理调优。
  * ============================================================================
  */
+ 
 #ifndef CONTROL_TASK_H
 #define CONTROL_TASK_H
 
@@ -40,6 +41,7 @@
 #include "arm_math.h"
 #include "RLS.h"
 
+#include "User_lib.h"
 
 /* 电机转速(RPM) → 轮子线速度(m/s) 的换算系数。
  * 在 FdbUpdate 里用来把 M3508 反馈的 Velocity(RPM) 换算成 m/s 再做低通滤波，
@@ -91,11 +93,30 @@
 /* 底盘 4 个轮电机共用的「速度环」PID 参数（PID_Calculate 用）：
  *  KP=比例  KI=积分  KD=微分；MAX_IOUT=积分限幅  MAX_OUT=输出限幅。
  *  注意：这是速度环（设定=目标转速 RPM，反馈=实际转速 RPM，输出=电流指令）。 */
-#define CHASSIS_MOTOR_PID_KP 14
-#define CHASSIS_MOTOR_PID_KI 0
-#define CHASSIS_MOTOR_PID_KD 0
-#define CHASSIS_MOTOR_PID_MAX_IOUT 100
-#define CHASSIS_MOTOR_PID_MAX_OUT 18000
+#define WHEEL_MOTOR_PID_KP 7
+#define WHEEL_MOTOR_PID_KI 0
+#define WHEEL_MOTOR_PID_KD 0
+#define WHEEL_MOTOR_PID_MAX_IOUT 100
+#define WHEEL_MOTOR_PID_MAX_OUT 15000
+
+#define STEER_MOTOR_PID_KP 30
+#define STEER_MOTOR_PID_KI 0
+#define STEER_MOTOR_PID_KD 0
+#define STEER_MOTOR_PID_MAX_IOUT 100
+#define STEER_MOTOR_PID_MAX_OUT 5000
+
+// ===== 舵向速度环（内环，双环新增）：转速误差 → 电流 =====
+#define STEER_SPEED_PID_KP 12          // 速度环P（先试30）
+#define STEER_SPEED_PID_KI 0
+#define STEER_SPEED_PID_KD 0
+#define STEER_SPEED_PID_MAX_IOUT 100
+#define STEER_SPEED_PID_MAX_OUT 13000 // 输出是电流，C620满量程16384
+
+//舵电机的零点 (舵轮指向正前方时编码器的读数)
+#define Forward_R_ecd  147.39f  //0号
+#define Forward_L_ecd  0	//1号 
+#define Back_R_ecd     0  //2号 
+#define Back_L_ecd     0	//3号   	 
 
 /**
  * @brief 底盘朝向枚举：表示当前「车头」朝哪个方向
@@ -118,7 +139,8 @@ typedef enum
  */
 typedef struct
 {
-    uint32_t motor[4];      /* 4 个底盘电机的反馈时间戳 */
+		uint32_t wheel_motor[4];  //四个轮电机反馈时间戳
+		uint32_t steer_motor[4];  //四个舵电机反馈时间戳
     uint32_t yaw;           /* yaw 达妙电机反馈时间戳 */
     uint32_t speed_set[3];  /* X/Y/Z 速度设定帧时间戳 */
     uint32_t ree_power;     /* 超级电容功率数据时间戳 */
@@ -205,11 +227,12 @@ typedef struct
         float Roll;     /* 底盘等效横滚角 (deg) */
     }Angle;
 		
-    DJI_Motor_Info_Typedef chassis_motor_fdb[4];   /* 4 个 M3508 轮毂电机反馈 */
-    DJI_Motor_Info_Typedef sht_motor_fdb;          /* 拨弹(发射)电机反馈 */
+    DJI_Motor_Info_Typedef wheel_motor_fdb[4];          // 4 个 M3508 轮电机反馈 
+    DJI_Motor_Contorl_Info_Typedef wheel_motor_set[4];  // 4 个轮电机设定 
 		
-    DJI_Motor_Contorl_Info_Typedef chassis_motor_set[4];  /* 4 个轮毂电机设定 */
-		
+		DJI_Motor_Info_Typedef steer_motor_fdb[4];          // 4 个 M3508 轮电机反馈 
+    DJI_Motor_Contorl_Info_Typedef steer_motor_set[4];  // 4 个轮电机设定 
+		DJI_Motor_Info_Typedef sht_motor_fdb;          /* 拨弹(发射)电机反馈 */
 		DM_Motor_Info_Typedef yaw_motor_fdb;           /* 达妙 DM4310 yaw 电机反馈 */
 		
     SuperPower_Info_Typedef super_power;           /* 超级电容数据 */
@@ -253,10 +276,16 @@ extern Chassis_Info_Typedef chassis;
 extern LegacyEncoder g_enc[4];  //四个编码器实例 
 
 /* 各电机反馈获取函数：从 Motor.c 的全局电机结构体拷贝反馈，返回该电机的更新时间戳 */
-extern uint32_t GetChassisMotor1Fdb(DJI_Motor_Info_Typedef * motor);
-extern uint32_t GetChassisMotor2Fdb(DJI_Motor_Info_Typedef * motor);
-extern uint32_t GetChassisMotor3Fdb(DJI_Motor_Info_Typedef * motor);
-extern uint32_t GetChassisMotor4Fdb(DJI_Motor_Info_Typedef * motor);
+extern uint32_t GetWheelMotor1Fdb(DJI_Motor_Info_Typedef * motor);
+extern uint32_t GetWheelMotor2Fdb(DJI_Motor_Info_Typedef * motor);
+extern uint32_t GetWheelMotor3Fdb(DJI_Motor_Info_Typedef * motor);
+extern uint32_t GetWheelMotor4Fdb(DJI_Motor_Info_Typedef * motor);
+
+extern uint32_t GetSteerMotor1Fdb(DJI_Motor_Info_Typedef * motor);
+extern uint32_t GetSteerMotor2Fdb(DJI_Motor_Info_Typedef * motor);
+extern uint32_t GetSteerMotor3Fdb(DJI_Motor_Info_Typedef * motor);
+extern uint32_t GetSteerMotor4Fdb(DJI_Motor_Info_Typedef * motor);
+
 extern uint32_t GetShootFdb(DJI_Motor_Info_Typedef * motor);
 
 extern uint32_t GetYawMotorFdb(DM_Motor_Info_Typedef* motor);
@@ -264,25 +293,21 @@ extern uint32_t GetYawMotorFdb(DM_Motor_Info_Typedef* motor);
 extern uint32_t GetChassisXSpeedSet(float* set);
 extern uint32_t GetChassisYSpeedSet(float* set);
 extern uint32_t GetChassisZSpeedSet(float* set);
-extern void SentShootToGimbal(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, uint8_t *Rxdata);
 
 /* 云台数据/超电数据拷贝函数（bsp_can.c 中实现） */
 void GetGimbalData(Gimbal_Info_Typedef* data);
 void GetSuperData(SuperPower_Info_Typedef* data);
-/* 把发射数据打包成 CAN 帧发给云台 */
-extern void Transmit_Shoot_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, float speed, int16_t heat,int16_t heatlimit,int16_t shooter_barrel_cooling_value);
 
 void ChassisInit(void);                                              /* 底盘初始化：PID 参数、功率系数 */
 void FdbUpdate(Chassis_Info_Typedef* chassis);                       /* 读取所有反馈数据 */
 void Slope_Compensation_Update(Chassis_Info_Typedef* chassis);       /* 坡度补偿系数更新 */
 void PowerLimit(Chassis_Info_Typedef* chassis_power_control);        /* 功率限幅核心算法 */
 void TimeErrorCalc(Chassis_Info_Typedef* chassis);                   /* 计算各数据源时间差 */
-float filter(float temp, float alpha);                               /* 一阶低通滤波 */
+
 void Absolute_Calc(Chassis_Info_Typedef* absolute_speed, float angle);/* 坐标系旋转 + 麦轮解算入口 */
 /* 注意：下面 AGV_* / Find_min_Angle / AngleLoop_* 是头文件里的遗留声明，
  * Control_Task.c 中并没有实现（实际用的是 Mecanum_Calc），属于死声明，勿依赖。 */
-void AGV_angle_calc(Chassis_Info_Typedef *speed);
-void AGV_calc(Chassis_Info_Typedef *speed);
+
 void CHASSIS_Single_Loop_Out(void);                                  /* 底盘速度环 PID 输出电流 */
 float32_t Find_min_Angle(float32_t angle1, float32_t angle2);
 void AngleLoop_f(float *angle, float max_angle);

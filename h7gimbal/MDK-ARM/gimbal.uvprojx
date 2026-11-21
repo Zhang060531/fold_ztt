@@ -570,6 +570,11 @@
               <FileType>1</FileType>
               <FilePath>..\Components\Algorithm\Src\CRC.c</FilePath>
             </File>
+            <File>
+              <FileName>User_lib.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\Algorithm\Src\User_lib.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

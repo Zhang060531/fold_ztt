@@ -63,6 +63,16 @@ PID_Info_TypeDef follow_pid, follow_pid2;  // 底盘跟随云台时用的 PID（
 PID_Info_TypeDef gm6020_shell_pid;    // GM6020 外环 位置环 PID
 PID_Info_TypeDef gm6020_core_pid;     // GM6020 内环 速度环 PID
 
+/* ===== GM6020 大pitch 调参变量（调试阶段 Watch 窗口实时改；调好再换回宏）===== */
+volatile float gm6020_ff_voltage        = 4700.0f;  // K：折叠位悬停电压
+volatile float gm6020_ff_sign           = -1.0f;    // 方向 ±1
+volatile float gm6020_extend_elev_deg   = 90.0f;    // 伸展仰角(°)
+volatile float gm6020_fold_elev_deg     = 30.0f;    // 折叠仰角(°)
+volatile float gm6020_speed_extend_deg_s = 160.0f;  // 伸展(立起来)巡航速度(°/s)
+volatile float gm6020_speed_fold_deg_s   = 170.0f;  // 折叠(下去)巡航速度(°/s)
+volatile float gm6020_brake_dist_extend_deg = 20.0f;  // 伸展(立起来)刹车距离(°)
+volatile float gm6020_brake_dist_fold_deg   = 10.0f;  // 折叠(下去)刹车距离(°)
+
 float key_scale_factor = 2.0;   // 键盘控制底盘/云台时的速度系数
 bool head_flag = HEAD;          // 云台当前朝向：车头(HEAD) 还是 车尾(TAIL)
 extern Image_Transmission_Info_TypeDef Image_Transmission_Info;  // 图传数据（外部定义）
@@ -73,7 +83,8 @@ extern Shoot_t shoot;                  // 发射机构数据（摩擦轮/拨弹�
 /* ============ 遥控器 → 车 的控制链=========== */
 /*********************************************************/
 /* 本工程同时接了两套遥控，代码里它们的输入是「相加」的：
- *
+ *  
+ 
  * [大疆 DT7 遥控器] (DR16 接收机, SBUS/USART5) —— 变量 remote_ctrl
  *     rc.ch[0]  右摇杆左右 → 云台 yaw 偏航目标角度
  *     rc.ch[1]  右摇杆上下 → 云台 pitch 俯仰目标角度
@@ -132,7 +143,7 @@ static void addYawAngle(Gimbal_t* yaw, float add);
 static void yawpidCalc(Gimbal_t* pid_calc, Axis_e axis);
 static void pitchpidCalc(Gimbal_t* pid_calc, Axis_e axis);
 static void TimeErrorCalc(Gimbal_t* gimbal);
-float ramp_speed(float last_speed, float target_speed, float max_step);
+
 void TransmitChassis_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame);
 void TransmitGimbal_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame);
 /*********************************************************/
@@ -278,6 +289,9 @@ static void GimbalInit(void)
      * 等机械释放完成之后，才允许 GM6020 真正向目标角度运动。 */
     GM6020_BRAKE_POWER_OFF();
     gimbal.gm6020.target_angle = GM6020_Motor.Data.Angle;
+		
+		gimbal.gm6020.cmd_angle    = GM6020_Motor.Data.Angle;
+		
     gimbal.gm6020.voltage = 0;
     gimbal.gm6020.brake_state = GM6020_BRAKE_LOCKED;
     gimbal.gm6020.release_hold_angle = GM6020_Motor.Data.Angle;
@@ -633,7 +647,10 @@ static void GM6020BrakeStateUpdate(void)
     {
         GM6020_BRAKE_POWER_OFF();
         gimbal.gm6020.target_angle = GM6020_Motor.Data.Angle;
-        gimbal.gm6020.voltage = 0;
+        
+				gimbal.gm6020.cmd_angle    = GM6020_Motor.Data.Angle;
+			
+				gimbal.gm6020.voltage = 0;
         GM6020EnterBrakeState(GM6020_BRAKE_LOCKED);
         return;
     }
@@ -651,7 +668,29 @@ static void GM6020BrakeStateUpdate(void)
 
     gimbal.gm6020.target_angle = (gimbal.robot_mode_set == EXTEND_MODE) ?
                                  GM6020_EXTEND_ANGLE : GM6020_FOLD_ANGLE;
-    err = GM6020GetAngleError();
+    
+		/* 指令角轨迹：远处全速，快到位时按剩余量比例减速（软着陆，不撞限位） */
+    {
+        float remaining = gimbal.gm6020.target_angle - gimbal.gm6020.cmd_angle;
+        // 伸展(立起来)和折叠(下去)用不同刹车距离，各自可调
+        float brake_dist = (gimbal.robot_mode_set == EXTEND_MODE)
+                         ? gm6020_brake_dist_extend_deg : gm6020_brake_dist_fold_deg;
+        float cruise_speed = (gimbal.robot_mode_set == EXTEND_MODE)
+                           ? gm6020_speed_extend_deg_s : gm6020_speed_fold_deg_s;
+        if (fabsf(remaining) > brake_dist)
+        {
+            // 离得远：全速巡航
+            gimbal.gm6020.cmd_angle += (remaining > 0.0f ? 1.0f : -1.0f)
+                                     * cruise_speed * 0.001f;
+        }
+        else
+        {
+            // 进入最后15°：速度随剩余距离线性降到0（和巡航速度连续，不突变）
+            gimbal.gm6020.cmd_angle += remaining * cruise_speed / brake_dist * 0.001f;
+        }
+    }
+		
+		err = GM6020GetAngleError();
 
     switch (gimbal.gm6020.brake_state)
     {
@@ -775,7 +814,7 @@ static void GM6020PidCalc(void)
 
     /* 松闸等待时保持当前角度，进入 MOVING 后才追最终目标。 */
     float angle_set = (gimbal.gm6020.brake_state == GM6020_BRAKE_RELEASING) ?
-                      gimbal.gm6020.release_hold_angle : gimbal.gm6020.target_angle;
+                      gimbal.gm6020.release_hold_angle : gimbal.gm6020.cmd_angle;
 
     /* 防止跨 ±180° 时绕远路。 */
     angle_set = PreventFullCircleConstrain(angle_set, GM6020_Motor.Data.Angle);
@@ -789,8 +828,21 @@ static void GM6020PidCalc(void)
     /* 重力前馈直接叠加到最终电压：
      * RELEASING 阶段位置误差为 0，PID 本身几乎没有输出，
      * 这里的前馈负责在机械抱闸松开前先托住大 pitch。 */
-    float gravity_ff = GM6020_GRAVITY_FF_SIGN * GM6020_GRAVITY_FF_VOLTAGE;
-    float total_voltage = pid_voltage + gravity_ff;
+    //float gravity_ff = gm6020_ff_sign * gm6020_ff_voltage;
+    
+//		float ff_angle_deg = GM6020_Motor.Data.Angle - GM6020_GRAVITY_FF_REF_ANGLE;
+//		float gravity_ff = gm6020_ff_sign * gm6020_ff_voltage * cosf(ff_angle_deg * ANGLE_TO_RAD);
+		
+		float t = (GM6020_Motor.Data.Angle - GM6020_EXTEND_ANGLE) / (GM6020_FOLD_ANGLE - GM6020_EXTEND_ANGLE);
+		if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    float elev_deg = gm6020_extend_elev_deg
+                   - (gm6020_extend_elev_deg - gm6020_fold_elev_deg) * t;
+    float gravity_ff = gm6020_ff_sign * gm6020_ff_voltage
+                     * cosf(elev_deg * ANGLE_TO_RAD)
+                     / cosf(gm6020_fold_elev_deg * ANGLE_TO_RAD);
+		
+		float total_voltage = pid_voltage + gravity_ff;
     VAL_LIMIT(total_voltage, -GM6020_CORE_PID_MAX_OUT, GM6020_CORE_PID_MAX_OUT);
 
     gimbal.gm6020.gravity_ff_voltage = (int16_t)gravity_ff;
@@ -1357,54 +1409,6 @@ static void pitchpidCalc(Gimbal_t* pid_calc, Axis_e axis)
 }
 
 
-
-
-
-static inline int16_t float_to_int16(float f, int16_t scale)
-{
-    int32_t temp = (int32_t)roundf(f * scale);
-    if (temp > INT16_MAX) return INT16_MAX;
-    if (temp < INT16_MIN) return INT16_MIN;
-    return (int16_t)temp;
-}
-
-static inline int32_t float_to_int32(float f, int32_t scale)
-{
-    int64_t temp = (int64_t)roundf(f * scale);
-    if (temp > INT32_MAX) return INT32_MAX;
-    if (temp < INT32_MIN) return INT32_MIN;
-    return (int32_t)temp;
-}
-
-
-/**
- * @brief 斜坡函数：让速度从 last_speed 平滑逼近 target_speed
- * @note  每次最多变化 max_step，避免速度突变。
- *        目标速度为 0 时把步长放大 3 倍（刹车更快更果断）。
- *        调车时 max_step 越大响应越快但越容易顿挫。
- */
-float ramp_speed(float last_speed, float target_speed, float max_step)
-{
-
-    float delta = target_speed - last_speed;
-
-
-    if (target_speed == 0)
-        max_step *= 3;
-    if (delta > max_step)
-    {
-        return last_speed + max_step;
-    }
-    else if (delta < -max_step)
-    {
-        return last_speed - max_step;
-    }
-    else
-    {
-        return target_speed; 
-    }
-
-}
 
 /**
  * @brief 把底盘速度指令打包成 CAN 0x21 帧发给底盘

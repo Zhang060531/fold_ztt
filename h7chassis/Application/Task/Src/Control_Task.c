@@ -1,5 +1,3 @@
-
-
 /* ============================================================================
  * 文件说明：底盘控制任务 (Control_Task.c) —— 底盘控制核心
  * ----------------------------------------------------------------------------
@@ -49,18 +47,24 @@
  * dbg_predict_wheel_power / dbg_predict_total_power / dbg_referee_real_power：
  *                        调试用功率预测/实测变量（当前代码里未再赋值使用） */
 extern INS_Info_Typedef INS_Info;               
-
 Chassis_Info_Typedef chassis;      
 
-PID_Info_TypeDef drive_motor_pid[4];          //四个轮电机pid
+PID_Info_TypeDef wheel_motor_pid[4];          //四个轮电机pid
+
 PID_Info_TypeDef steer_motor_pid[4];          //四个舵电机pid
+PID_Info_TypeDef steer_speed_pid[4];          //四个舵电机速度环pid（内环，双环新增）
+
 LegacyEncoder g_enc[4];
-
+/* 4 个舵轮零点 = 该轮指向正前方时 ME12-C 的读数；先填 0，Step 8 测完再改 Motor.h 的宏 */
+const float steer_zero[4] = { Forward_R_ecd, Forward_L_ecd, Back_R_ecd, Back_L_ecd };
 float set = 0;                                  
-
-float dbg_predict_wheel_power = 0.0f;           
-float dbg_predict_total_power = 0.0f;           
-float dbg_referee_real_power  = 0.0f;           
+    
+//
+//这些要自己测一下
+const float wheel_radius = 0.0625f;  //驱动轮半径(用于把转速->线速度)
+const float wheel_to_core_distance[4] = {0.239f,0.239f,0.239f,0.239f};  //轮距中心长度
+//轮组方位角(这是啥)
+const float wheel_azimuth[4] = {7.0f*PI/4.0f,5.0f*PI/4.0f,3.0f*PI/4.0f,1.0f*PI/4.0f};
 
 
 /* 函数前向声明（与头文件一致，供本文件内部调用） */
@@ -70,11 +74,13 @@ void Slope_Compensation_Update(Chassis_Info_Typedef* chassis);
 void PowerLimit(Chassis_Info_Typedef* chassis_power_control);
 void TimeErrorCalc(Chassis_Info_Typedef* chassis);
 void Absolute_Calc(Chassis_Info_Typedef* absolute_speed, float angle);
-void Mecanum_Calc(Chassis_Info_Typedef *speed);
+
+void Swerve_Calc(Chassis_Info_Typedef*speed);
+
+static float steer_angle_now(int i);
+void Steer_Angle_Loop(void);
+
 void CHASSIS_Single_Loop_Out(void);
-float filter(float temp, float alpha);
-void Transmit_Shoot_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, float speed, int16_t heat, int16_t heatlimit, int16_t shooter_barrel_cooling_value);
-void SentShootToGimbal(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, uint8_t *Rxdata);
 
 
 static void Lagrange_Mecanum_Power_Clamp(Chassis_Info_Typedef *chassis, float P_max,
@@ -99,15 +105,15 @@ void Control_Task(void const * argument)
     for (;;)
     {
         Check_All_Motors_Offline();      /* 第1步：检测电机离线，离线电机电流清零 */
-
-        FdbUpdate(&chassis);             /* 第2步：读取全部反馈 */
+  
+        FdbUpdate(&chassis);             // 第2步：读取全部反馈 
 
 //  现在底盘速度设定改由云台通过 CAN 0x21 帧下发（见 FdbUpdate 里的 GetChassisXSpeedSet 等）。
-//        chassis.chassis_xyz_set[CHASSIS_X] = remote_ctrl.rc.ch[2] * 0.014;
-//        chassis.chassis_xyz_set[CHASSIS_Y] = remote_ctrl.rc.ch[3] * 0.014;
-//        chassis.chassis_xyz_set[CHASSIS_Z] = -remote_ctrl.rc.ch[0] * 0.01;
-//			if (remote_ctrl.rc.s[1]==1)
-//				chassis.chassis_xyz_set[CHASSIS_Z] = 10;
+        chassis.chassis_xyz_set[CHASSIS_X] = remote_ctrl.rc.ch[3] * 0.014;
+        chassis.chassis_xyz_set[CHASSIS_Y] = remote_ctrl.rc.ch[2] * 0.014;
+        chassis.chassis_xyz_set[CHASSIS_Z] = -remote_ctrl.rc.ch[0] * 0.01;
+				if (remote_ctrl.rc.s[1]==1)
+				chassis.chassis_xyz_set[CHASSIS_Z] = 10;
 			
         Slope_Compensation_Update(&chassis);   /* 第3步：坡度补偿系数更新 */
 
@@ -134,22 +140,35 @@ void ChassisInit(void)
     for (int i = 0; i < 4; i++)
     {
         /* 4 个轮毂电机共用的速度环 PID 参数（位置式） */
-        drive_motor_pid[i].Param.KP = CHASSIS_MOTOR_PID_KP;
-        drive_motor_pid[i].Param.KI = CHASSIS_MOTOR_PID_KI;
-        drive_motor_pid[i].Param.KD = CHASSIS_MOTOR_PID_KD;
-        drive_motor_pid[i].Param.LimitIntegral = CHASSIS_MOTOR_PID_MAX_IOUT;
-        drive_motor_pid[i].Param.LimitOutput = CHASSIS_MOTOR_PID_MAX_OUT;
-        drive_motor_pid[i].Type = PID_POSITION;
-
+        wheel_motor_pid[i].Param.KP = WHEEL_MOTOR_PID_KP;
+        wheel_motor_pid[i].Param.KI = WHEEL_MOTOR_PID_KI;
+        wheel_motor_pid[i].Param.KD = WHEEL_MOTOR_PID_KD;
+        wheel_motor_pid[i].Param.LimitIntegral = WHEEL_MOTOR_PID_MAX_IOUT;
+        wheel_motor_pid[i].Param.LimitOutput = WHEEL_MOTOR_PID_MAX_OUT;
+        wheel_motor_pid[i].Type = PID_POSITION;
+			
+        steer_motor_pid[i].Param.KP = STEER_MOTOR_PID_KP;
+        steer_motor_pid[i].Param.KI = STEER_MOTOR_PID_KI;
+        steer_motor_pid[i].Param.KD = STEER_MOTOR_PID_KD;
+        steer_motor_pid[i].Param.LimitIntegral = STEER_MOTOR_PID_MAX_IOUT;
+        steer_motor_pid[i].Param.LimitOutput = STEER_MOTOR_PID_MAX_OUT;
+        steer_motor_pid[i].Type = PID_POSITION;
+				
+				steer_speed_pid[i].Param.KP = STEER_SPEED_PID_KP;
+				steer_speed_pid[i].Param.KI = STEER_SPEED_PID_KI;
+				steer_speed_pid[i].Param.KD = STEER_SPEED_PID_KD;
+				steer_speed_pid[i].Param.LimitIntegral = STEER_SPEED_PID_MAX_IOUT;
+				steer_speed_pid[i].Param.LimitOutput = STEER_SPEED_PID_MAX_OUT;
+				steer_speed_pid[i].Type = PID_POSITION;
         chassis.Slope.K_angle[i] = 1.0f;   /* 坡度补偿系数初始化为 1（不补偿） */
     }
 		
 		/* 初始化 4 个磁编码器：绑定 FDCAN3，ID 分别 1/2/3/4 */
-    LegacyEncoder_Init(&g_enc[0], &hfdcan3, 1);
-    //LegacyEncoder_Init(&g_enc[1], &hfdcan3, 2);
-    //LegacyEncoder_Init(&g_enc[2], &hfdcan3, 3);
-    //LegacyEncoder_Init(&g_enc[3], &hfdcan3, 4);
-		LegacyEncoder_SetPeriodCode(&g_enc[0], 1);     // 1号改频率：1=10ms ... 5=50ms
+    LegacyEncoder_Init(&g_enc[0], &hfdcan3, 1);  
+    //LegacyEncoder_Init(&g_enc[1], &hfdcan2, 2);
+    //LegacyEncoder_Init(&g_enc[2], &hfdcan2, 3);
+    //LegacyEncoder_Init(&g_enc[3], &hfdcan2, 4);
+		LegacyEncoder_SetPeriodCode(&g_enc[0], 2);     // 1号改频率：1=10ms ... 5=50ms
 		//LegacyEncoder_SetZero(&g_enc[0]);              // 1号设零点（先转到你要的零点再调）
 		
 		
@@ -173,18 +192,157 @@ void ChassisInit(void)
  */
 void CHASSIS_Single_Loop_Out(void)
 {
-    /* 第1步：坐标系旋转 + 麦轮解算，得到 4 个轮子的目标转速 (RPM) */
+    // 第1步：坐标系旋转 + 麦轮解算，得到 4 个轮子的目标转速 (RPM) 
     Absolute_Calc(&chassis, 0);
-
-    /* 第2步：对每个轮子做速度环 PID，输出电流指令 */
-    for (int i = 0; i < 4; i++)
+    Steer_Angle_Loop();   // 舵向位置环：算 dir_flag/cosk/舵电流，必须在下面驱动轮算 rpm 之前调用
+		
+		// m/s → rpm 换算系数（沿用原来麦轮的公式） 
+    float ratio = 60.0f / (WHEEL_PERIMETER * PI) * CHASSIS_DECELE_RATIO * 1000.0f;
+    
+	
+		for (int i = 0; i < 4; i++)
     {
-        chassis.chassis_motor_set[i].current_set = PID_Calculate(&drive_motor_pid[i],
-            chassis.chassis_motor_set[i].speed_rpm_set,
-            chassis.chassis_motor_fdb[i].Data.Velocity);
+        /* 目标转速 = 逆解轮速 × 方向 × cos³，再换算成 rpm */
+        float rpm = chassis.steer_motor_set[i].target_speed
+                  * chassis.steer_motor_set[i].dir_flag
+                  * chassis.steer_motor_set[i].cosk
+                  * ratio;
+        chassis.wheel_motor_set[i].speed_rpm_set = -(int16_t)rpm;
+
+        /* 驱动轮速度环 */
+        chassis.wheel_motor_set[i].current_set = PID_Calculate(&wheel_motor_pid[i],
+            chassis.wheel_motor_set[i].speed_rpm_set,
+            chassis.wheel_motor_fdb[i].Data.Velocity);
     }
+
+}
+/**
+ * @brief 坐标系旋转 + 麦轮解算入口
+ * @note  把云台坐标系下的 X/Y/Z 速度设定绕 angle 角旋转到底盘坐标系，
+ *        再调用 Mecanum_Calc 分解成 4 个轮子的目标转速。
+ *        注意：当前调用时 angle 恒为 0（见 CHASSIS_Single_Loop_Out），
+ *        所以 cos=1、sin=0，旋转实际没生效，属于预留功能。
+ * @param absolute_speed 底盘结构体指针
+ * @param angle 旋转角度 (deg)，当前调用恒为 0
+ * @retval 无
+ */
+void Absolute_Calc(Chassis_Info_Typedef* absolute_speed, float angle)
+{
+    float angle_hd = angle * PI / 180.0f;   /* 角度转弧度 */
+    absolute_speed->chassis_xyz_set_f[CHASSIS_Z] = absolute_speed->chassis_xyz_set[CHASSIS_Z];   /* Z 旋转分量不变 */
+    /* X/Y 做平面旋转（绕 Z 轴转 angle 角） */
+    absolute_speed->chassis_xyz_set_f[CHASSIS_X] = absolute_speed->chassis_xyz_set[CHASSIS_X] * cos(angle_hd) - absolute_speed->chassis_xyz_set[CHASSIS_Y] * sin(angle_hd);
+    absolute_speed->chassis_xyz_set_f[CHASSIS_Y] = absolute_speed->chassis_xyz_set[CHASSIS_X] * sin(angle_hd) + absolute_speed->chassis_xyz_set[CHASSIS_Y] * cos(angle_hd);
+
+    /* 麦轮解算：三轴速度 → 4 个轮子目标转速 */
+
+
+		Swerve_Calc(absolute_speed);
+
 }
 
+void Swerve_Calc(Chassis_Info_Typedef*speed)
+{
+    float Vx = speed->chassis_xyz_set_f[CHASSIS_X];   //前 m/s
+    float Vy = speed->chassis_xyz_set_f[CHASSIS_Y];   //左 m/s
+    float Wz = speed->chassis_xyz_set_f[CHASSIS_Z];   //逆时针 rad/s
+		
+		//这里是把z旋转引起的速度映射到x和y
+    float rot = Wz * 0.70710678;  //sin45 = cos45
+    float vxp = Vx + rot, vxm = Vx - rot;
+    float vyp = Vy + rot, vym = Vy - rot;
+
+    const float dead_zone = 0.1f;   // 死区：合速度 < 0.1 m/s 就停车归位
+
+    // 右前 Forward_R
+    {
+        float mag = sqrtf(vyp*vyp + vxm*vxm);
+        if (mag < dead_zone)
+				{
+            speed->steer_motor_set[Forward_R].target_angle_deg = wheel_azimuth[Forward_R] * 180.0f / PI;
+            speed->steer_motor_set[Forward_R].target_speed = 0.0f;
+        } 
+				else 
+				{
+            speed->steer_motor_set[Forward_R].target_angle_deg = atan2f(vyp, vxm) * 180.0f / PI;
+            speed->steer_motor_set[Forward_R].target_speed     = -sqrtf(vyp*vyp + vxm*vxm);
+        }
+    }
+    // 左前 Forward_L
+    {
+        float mag = sqrtf(vyp*vyp + vxp*vxp);
+        if (mag < dead_zone) {
+            speed->steer_motor_set[Forward_L].target_angle_deg = wheel_azimuth[Forward_L] * 180.0f / PI;
+            speed->steer_motor_set[Forward_L].target_speed = 0.0f;
+        } else {
+            speed->steer_motor_set[Forward_L].target_angle_deg = atan2f(vyp, vxp) * 180.0f / PI;
+            speed->steer_motor_set[Forward_L].target_speed     =  sqrtf(vyp*vyp + vxp*vxp);
+        }
+    }
+    // 右后 Back_R
+    {
+        float mag = sqrtf(vym*vym + vxm*vxm);
+        if (mag < dead_zone) {
+            speed->steer_motor_set[Back_R].target_angle_deg = wheel_azimuth[Back_R] * 180.0f / PI;
+            speed->steer_motor_set[Back_R].target_speed = 0.0f;
+        } else {
+            speed->steer_motor_set[Back_R].target_angle_deg    = atan2f(vym, vxm) * 180.0f / PI;
+            speed->steer_motor_set[Back_R].target_speed        =  sqrtf(vym*vym + vxm*vxm);
+        }
+    }
+    // 左后 Back_L
+    {
+        float mag = sqrtf(vym*vym + vxp*vxp);
+        if (mag < dead_zone) {
+            speed->steer_motor_set[Back_L].target_angle_deg = wheel_azimuth[Back_L] * 180.0f / PI;
+            speed->steer_motor_set[Back_L].target_speed = 0.0f;
+        } else {
+            speed->steer_motor_set[Back_L].target_angle_deg    = atan2f(vym, vxp) * 180.0f / PI;
+            speed->steer_motor_set[Back_L].target_speed        =  sqrtf(vym*vym + vxp*vxp);
+        }
+    }
+}
+//读当前舵轮角度 减去零点后归一到[-180,180]
+static float steer_angle_now(int i)
+{
+    float a = g_enc[i].angle_deg - steer_zero[i];
+    while (a >  180.0f) a -= 360.0f;
+    while (a < -180.0f) a += 360.0f;
+    return a;
+}
+
+//舵向位置环 ：就近原则/最优角/cos三次方  输出舵向电流
+void Steer_Angle_Loop(void)
+{
+    for (int i = 0; i < 4; i++)
+    {
+        float target = chassis.steer_motor_set[i].target_angle_deg; //目标角度
+        float now    = steer_angle_now(i);    //当前角度
+
+        float err = target - now;
+        while (err >  180.0f) err -= 360.0f;   /* 就近原则 */
+        while (err < -180.0f) err += 360.0f;
+
+        float dir = 1.0f;
+        if (err > 90.0f)       { err -= 180.0f; dir = -1.0f; }  /* 最优角：转180°+轮子反转 */
+        else if (err < -90.0f) { err += 180.0f; dir = -1.0f; }
+
+        float rad  = err * PI / 180.0f;
+        float c    = arm_cos_f32(rad);
+        float cosk = c * c * c;                 /* cos³ 补偿 */
+
+        chassis.steer_motor_set[i].dir_flag = dir;
+        chassis.steer_motor_set[i].cosk     = cosk;
+
+        /* 位置环：目标 0，反馈 = 误差 → 电流 */
+       // chassis.steer_motor_set[i].current_set = (int16_t)PID_Calculate(&steer_motor_pid[i], 0.0f, err);
+				/* ===== 双环：外环位置 → 目标转速(rpm)，内环速度 → 电流 ===== */
+				float target_rpm = PID_Calculate(&steer_motor_pid[i], 0.0f, err);          // 外环：角度误差→目标转速
+
+				chassis.steer_motor_set[i].current_set =
+						(int16_t)PID_Calculate(&steer_speed_pid[i], target_rpm, chassis.steer_motor_fdb[i].Data.Velocity);   // 内环：转速误差→电流
+    }
+}
 /**
  * @brief   IMU角度变换，根据底盘朝向计算等效Pitch/Roll
  */
@@ -231,16 +389,27 @@ void FdbUpdate(Chassis_Info_Typedef* chassis)
     INS_Angle_Calc();                       /* 先按车头朝向把 IMU 角度换算成底盘等效 Pitch/Roll */
     chassis->time_last = chassis->time_now; /* 保存上次时间戳，用于算时间差 */
 
-    /* 读取 4 个轮毂电机反馈，并把 RPM 换算成 m/s 后做一阶低通滤波 */
-    chassis->time_now.motor[M1] = GetChassisMotor1Fdb(&(chassis->chassis_motor_fdb[M1]));
-    chassis->chassis_motor_fdb[M1].Data.Velocity_filter = filter(Int16ToFloat(chassis->chassis_motor_fdb[M1].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
-    chassis->time_now.motor[M2] = GetChassisMotor2Fdb(&(chassis->chassis_motor_fdb[M2]));
-    chassis->chassis_motor_fdb[M2].Data.Velocity_filter = filter(Int16ToFloat(chassis->chassis_motor_fdb[M2].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
-    chassis->time_now.motor[M3] = GetChassisMotor3Fdb(&(chassis->chassis_motor_fdb[M3]));
-    chassis->chassis_motor_fdb[M3].Data.Velocity_filter = filter(Int16ToFloat(chassis->chassis_motor_fdb[M3].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
-    chassis->time_now.motor[M4] = GetChassisMotor4Fdb(&(chassis->chassis_motor_fdb[M4]));
-    chassis->chassis_motor_fdb[M4].Data.Velocity_filter = filter(Int16ToFloat(chassis->chassis_motor_fdb[M4].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
-
+    //读取 4 个轮电机反馈，并把 RPM 换算成 m/s 后做一阶低通滤波
+    chassis->time_now.wheel_motor[M1] = GetWheelMotor1Fdb(&(chassis->wheel_motor_fdb[M1]));
+    chassis->wheel_motor_fdb[M1].Data.Velocity_filter = filter(Int16ToFloat(chassis->wheel_motor_fdb[M1].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
+    chassis->time_now.wheel_motor[M2] = GetWheelMotor2Fdb(&(chassis->wheel_motor_fdb[M2]));
+    chassis->wheel_motor_fdb[M2].Data.Velocity_filter = filter(Int16ToFloat(chassis->wheel_motor_fdb[M2].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
+    chassis->time_now.wheel_motor[M3] = GetWheelMotor3Fdb(&(chassis->wheel_motor_fdb[M3]));
+    chassis->wheel_motor_fdb[M3].Data.Velocity_filter = filter(Int16ToFloat(chassis->wheel_motor_fdb[M3].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
+    chassis->time_now.wheel_motor[M4] = GetWheelMotor4Fdb(&(chassis->wheel_motor_fdb[M4]));
+    chassis->wheel_motor_fdb[M4].Data.Velocity_filter = filter(Int16ToFloat(chassis->wheel_motor_fdb[M4].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
+		
+		//读取4个舵电机反馈
+		chassis->time_now.steer_motor[Forward_R] = GetSteerMotor1Fdb(&(chassis->steer_motor_fdb[Forward_R]));
+    chassis->steer_motor_fdb[Forward_R].Data.Velocity_filter = filter(Int16ToFloat(chassis->steer_motor_fdb[Forward_R].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
+    chassis->time_now.steer_motor[Forward_L] = GetSteerMotor2Fdb(&(chassis->steer_motor_fdb[Forward_L]));
+    chassis->steer_motor_fdb[Forward_L].Data.Velocity_filter = filter(Int16ToFloat(chassis->steer_motor_fdb[Forward_L].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
+    chassis->time_now.steer_motor[Back_R] = GetSteerMotor3Fdb(&(chassis->steer_motor_fdb[Back_R]));
+    chassis->steer_motor_fdb[Back_R].Data.Velocity_filter = filter(Int16ToFloat(chassis->steer_motor_fdb[Back_R].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
+    chassis->time_now.steer_motor[Back_L] = GetSteerMotor4Fdb(&(chassis->steer_motor_fdb[Back_L]));
+    chassis->steer_motor_fdb[Back_L].Data.Velocity_filter = filter(Int16ToFloat(chassis->steer_motor_fdb[Back_L].Data.Velocity) * M3508_MOTOR_RPM_TO_VECTOR, 0.8);
+		  
+		
     /* 拨弹电机 + 达妙 yaw 电机 + 超级电容数据 */
     GetShootFdb(&(chassis->sht_motor_fdb));
     chassis->time_now.yaw = GetYawMotorFdb(&(chassis->yaw_motor_fdb));
@@ -292,7 +461,7 @@ void Slope_Compensation_Update(Chassis_Info_Typedef* chassis)
         chassis->Slope.Sin[1] = arm_sin_f32(chassis->Angle.Roll * PI / 180.0f);
     }
     else
-    {
+    {  
         chassis->Slope.Cos[1] = 1.0f;
         chassis->Slope.Sin[1] = 0.0f;
     }
@@ -314,93 +483,45 @@ void Slope_Compensation_Update(Chassis_Info_Typedef* chassis)
  */
 void TimeErrorCalc(Chassis_Info_Typedef* chassis)
 {
-    chassis->time_error.motor[M1] = chassis->time_now.motor[M1] - chassis->time_last.motor[M1];
-    chassis->time_error.motor[M2] = chassis->time_now.motor[M2] - chassis->time_last.motor[M2];
-    chassis->time_error.motor[M3] = chassis->time_now.motor[M3] - chassis->time_last.motor[M3];
-    chassis->time_error.motor[M4] = chassis->time_now.motor[M4] - chassis->time_last.motor[M4];
+		
+    chassis->time_error.wheel_motor[M1] = chassis->time_now.wheel_motor[M1] - chassis->time_last.wheel_motor[M1];
+    chassis->time_error.wheel_motor[M2] = chassis->time_now.wheel_motor[M2] - chassis->time_last.wheel_motor[M2];
+    chassis->time_error.wheel_motor[M3] = chassis->time_now.wheel_motor[M3] - chassis->time_last.wheel_motor[M3];
+    chassis->time_error.wheel_motor[M4] = chassis->time_now.wheel_motor[M4] - chassis->time_last.wheel_motor[M4];
+		
+		chassis->time_error.steer_motor[M1] = chassis->time_now.steer_motor[M1] - chassis->time_last.steer_motor[M1];
+    chassis->time_error.steer_motor[M2] = chassis->time_now.steer_motor[M2] - chassis->time_last.steer_motor[M2];
+    chassis->time_error.steer_motor[M3] = chassis->time_now.steer_motor[M3] - chassis->time_last.steer_motor[M3];
+    chassis->time_error.steer_motor[M4] = chassis->time_now.steer_motor[M4] - chassis->time_last.steer_motor[M4];
 }
 
 
-/**
- * @brief 坐标系旋转 + 麦轮解算入口
- * @note  把云台坐标系下的 X/Y/Z 速度设定绕 angle 角旋转到底盘坐标系，
- *        再调用 Mecanum_Calc 分解成 4 个轮子的目标转速。
- *        注意：当前调用时 angle 恒为 0（见 CHASSIS_Single_Loop_Out），
- *        所以 cos=1、sin=0，旋转实际没生效，属于预留功能。
- * @param absolute_speed 底盘结构体指针
- * @param angle 旋转角度 (deg)，当前调用恒为 0
- * @retval 无
- */
-void Absolute_Calc(Chassis_Info_Typedef* absolute_speed, float angle)
-{
-    float angle_hd = angle * PI / 180.0f;   /* 角度转弧度 */
-    absolute_speed->chassis_xyz_set_f[CHASSIS_Z] = absolute_speed->chassis_xyz_set[CHASSIS_Z];   /* Z 旋转分量不变 */
-    /* X/Y 做平面旋转（绕 Z 轴转 angle 角） */
-    absolute_speed->chassis_xyz_set_f[CHASSIS_X] = absolute_speed->chassis_xyz_set[CHASSIS_X] * cos(angle_hd) - absolute_speed->chassis_xyz_set[CHASSIS_Y] * sin(angle_hd);
-    absolute_speed->chassis_xyz_set_f[CHASSIS_Y] = absolute_speed->chassis_xyz_set[CHASSIS_X] * sin(angle_hd) + absolute_speed->chassis_xyz_set[CHASSIS_Y] * cos(angle_hd);
-
-    /* 麦轮解算：三轴速度 → 4 个轮子目标转速 */
-    Mecanum_Calc(absolute_speed);
-}
 
 
-/**
- * @brief 麦轮速度解算：把 X/Y/Z 三轴速度分解成 4 个轮子的目标转速
- * @note  公式（麦轮全向底盘标准解算）：
- *          wheel0 = ( Vx - Vy - Wz*R) * ratio
- *          wheel1 = (-Vx - Vy - Wz*R) * ratio
- *          wheel2 = (-Vx + Vy - Wz*R) * ratio
- *          wheel3 = ( Vx + Vy - Wz*R) * ratio
- *        ratio = 60/(轮周长*π) * 减速比 * 1000，把 m/s 换算成电机 RPM。
- *        结果写入 chassis_motor_set[i].speed_rpm_set（int16，单位 RPM）。
- * @param speed 底盘结构体指针
- * @retval 无
- */
-void Mecanum_Calc(Chassis_Info_Typedef *speed)
-{
-    /* 换算系数：把 m/s 转成电机 RPM（60/(周长*π) 把 m/s→轮RPM，再乘减速比→电机RPM，乘1000 单位换算） */
-    float wheel_rpm_ratio = 60.0f / (WHEEL_PERIMETER * PI) * CHASSIS_DECELE_RATIO * 1000.0f;
 
-    /* 三轴速度（底盘坐标系，X/Y 单位 m/s，Z 单位 rad/s） */
-    float Vx = speed->chassis_xyz_set_f[CHASSIS_X];
-    float Vy = speed->chassis_xyz_set_f[CHASSIS_Y];
-    float Wz = speed->chassis_xyz_set_f[CHASSIS_Z];
+//void Swerve_Calc(Chassis_Info_Typedef*speed)
+//{
+//	  float Vx = speed->chassis_xyz_set_f[CHASSIS_X];   //前 m/s
+//	  float Vy = speed->chassis_xyz_set_f[CHASSIS_Y];   //左 m/s
+//	  float Wz = speed->chassis_xyz_set_f[CHASSIS_Z];   //逆时针 rad/s
+//		
+//		float rot = Wz * 0.70710678;  //sin45 = cos45
+//		//这啥意思
+//		float vxp = Vx + rot, vxm = Vx - rot;
+//    float vyp = Vy + rot, vym = Vy - rot;
+//		// 四个舵轮（下标与 Motor.h 一致：0=Forward_R 1=Forward_L 2=Back_R 3=Back_L） 
+//    speed->steer_motor_set[Forward_R].target_angle_deg = atan2f(vyp, vxm) * 180.0f / PI;
+//		speed->steer_motor_set[Forward_R].target_speed     = -sqrtf(vyp*vyp + vxm*vxm);         //负号 = 装车方向修正 如果电机转反了就改这里试一下  
 
-    /* 旋转分量折算系数（轮距相关，见 Control_Task.h 的 Radius） */
-    float L_factor = Radius;
-    float wheel_rpm_target[4];
+//    speed->steer_motor_set[Forward_L].target_angle_deg = atan2f(vyp, vxp) * 180.0f / PI;
+//    speed->steer_motor_set[Forward_L].target_speed     =  sqrtf(vyp*vyp + vxp*vxp);
 
-    /* 麦轮标准解算公式（4 轮布置，轮序 wheel0~wheel3 对应 M1~M4） */
-    wheel_rpm_target[0] = (Vx - Vy - Wz * L_factor) * wheel_rpm_ratio;
-    wheel_rpm_target[1] = (-Vx - Vy - Wz * L_factor) * wheel_rpm_ratio;
+//    speed->steer_motor_set[Back_R].target_angle_deg    = atan2f(vym, vxm) * 180.0f / PI;
+//    speed->steer_motor_set[Back_R].target_speed        =  sqrtf(vym*vym + vxm*vxm);
 
-    wheel_rpm_target[2] = (-Vx + Vy - Wz * L_factor) * wheel_rpm_ratio;
-    wheel_rpm_target[3] = (Vx + Vy - Wz * L_factor) * wheel_rpm_ratio;
-
-    /* 写入各轮目标转速 (RPM)，作为速度环 PID 的设定值 */
-    for (int i = 0; i < 4; i++)
-    {
-        chassis.chassis_motor_set[i].speed_rpm_set = (int16_t)wheel_rpm_target[i];
-    }
-}
-
-/**
- * @brief 一阶低通滤波器
- * @note  value = temp*alpha + last*(1-alpha)，alpha 越大越跟手(越接近原始值)，
- *        alpha 越小越平滑(越滤高频)。FdbUpdate 里用 alpha=0.8 滤轮速。
- *        注意：内部用 static 变量保存历史值，只适合滤波单个信号，多信号共用会串。
- * @param temp 本次采样值
- * @param alpha 滤波系数 (0~1)
- * @retval 滤波后的值
- */
-float filter(float temp, float alpha)
-{
-    static float value, last_value;
-    value = temp * alpha + (1.0f - alpha) * last_value;
-    last_value = value;
-    return value;
-}
-
+//    speed->steer_motor_set[Back_L].target_angle_deg    = atan2f(vym, vxp) * 180.0f / PI;
+//    speed->steer_motor_set[Back_L].target_speed        =  sqrtf(vym*vym + vxp*vxp);
+//}
 
 /**
  * @brief 拉格朗日功率优化分配：给 4 个轮子重新分配电流，使总功率不超 P_max
@@ -424,15 +545,15 @@ static void Lagrange_Mecanum_Power_Clamp(Chassis_Info_Typedef *chassis, float P_
     
     for (int i = 0; i < 4; i++)
     {
-        if (!Chassis_Motor[i].is_offline)
+        if (!Wheel_Motor[i].is_offline)
         {
             /* 若电流设定恰好为 0，赋一个 ±1 的极小量，避免后面求 α 时除零 */
-            if (chassis->chassis_motor_set[i].current_set == 0)
+            if (chassis->wheel_motor_set[i].current_set == 0)
             {
-                chassis->chassis_motor_set[i].current_set = (chassis->chassis_motor_fdb[i].Data.Velocity >= 0) ? 1 : -1;
+                chassis->wheel_motor_set[i].current_set = (chassis->wheel_motor_fdb[i].Data.Velocity >= 0) ? 1 : -1;
             }
-            float i_w = chassis->chassis_motor_set[i].current_set;
-            float w_w = chassis->chassis_motor_fdb[i].Data.Velocity;
+            float i_w = chassis->wheel_motor_set[i].current_set;
+            float w_w = chassis->wheel_motor_fdb[i].Data.Velocity;
 
             /* 功率二次多项式系数：P(α) = A*α² + B*α + C */
             A_w[i] = k1_w * i_w * i_w;
@@ -458,13 +579,13 @@ static void Lagrange_Mecanum_Power_Clamp(Chassis_Info_Typedef *chassis, float P_
         current_power = 0.0f;
         for (int i = 0; i < 4; i++)
         {
-            if (!Chassis_Motor[i].is_offline)
+            if (!Wheel_Motor[i].is_offline)
             {
                 /* 由一阶最优条件求每个轮子的 α（λ 越大 α 越小，功率越低） */
                 alpha_w[i] = (2.0f * W_w[i] - lambda_upper * B_w[i]) / (2.0f * W_w[i] + 2.0f * A_w[i] * lambda_upper);
                 /* α 限幅：保证缩放后电流不超过 ±16384 */
-                float max_alpha = MAX_CMD_CURRENT / fabsf((float)chassis->chassis_motor_set[i].current_set);
-                float min_alpha = MIN_CMD_CURRENT / fabsf((float)chassis->chassis_motor_set[i].current_set);
+                float max_alpha = MAX_CMD_CURRENT / fabsf((float)chassis->wheel_motor_set[i].current_set);
+                float min_alpha = MIN_CMD_CURRENT / fabsf((float)chassis->wheel_motor_set[i].current_set);
                 alpha_w[i] = fminf(fmaxf(alpha_w[i], min_alpha), max_alpha);
 
                 float p_w = A_w[i] * alpha_w[i] * alpha_w[i] + B_w[i] * alpha_w[i] + C_w[i];
@@ -493,10 +614,10 @@ static void Lagrange_Mecanum_Power_Clamp(Chassis_Info_Typedef *chassis, float P_
 
         for (int i = 0; i < 4; i++)
         {
-            if (!Chassis_Motor[i].is_offline)
+            if (!Wheel_Motor[i].is_offline)
             {
                 alpha_w[i] = (2.0f * W_w[i] - lambda * B_w[i]) / (2.0f * W_w[i] + 2.0f * A_w[i] * lambda);
-                float limit_alpha = MAX_CMD_CURRENT / fabsf((float)chassis->chassis_motor_set[i].current_set);
+                float limit_alpha = MAX_CMD_CURRENT / fabsf((float)chassis->wheel_motor_set[i].current_set);
                 alpha_w[i] = fminf(fmaxf(alpha_w[i], -limit_alpha), limit_alpha);
                 float p_w = A_w[i] * alpha_w[i] * alpha_w[i] + B_w[i] * alpha_w[i] + C_w[i];
                 current_power += (p_w > 0) ? p_w : 0;
@@ -521,9 +642,9 @@ APPLY_ALPHA:
     /* 把求得的缩放系数 α 应用到电流设定上，完成限幅 */
     for (int i = 0; i < 4; i++)
     {
-        if (!Chassis_Motor[i].is_offline)
+        if (!Wheel_Motor[i].is_offline)
         {
-            chassis->chassis_motor_set[i].current_set = (int16_t)(chassis->chassis_motor_set[i].current_set * alpha_w[i]);
+            chassis->wheel_motor_set[i].current_set = (int16_t)(chassis->wheel_motor_set[i].current_set * alpha_w[i]);
         }
     }
 }
@@ -566,8 +687,8 @@ void PowerLimit(Chassis_Info_Typedef *chassis_power_control)
 {
     // --- 0. 硬件状态安全检查 ---
     for (int i = 0; i < 4; i++)
-        if (Chassis_Motor[i].is_offline)
-            chassis_power_control->chassis_motor_set[i].current_set = 0;
+        if (Wheel_Motor[i].is_offline)
+            chassis_power_control->wheel_motor_set[i].current_set = 0;
     // --- 1. 物理常数加载与坡度自适应膨胀 ---
     float k1_w = chassis_power_control->PowerCtrl[1].K1;  //电流平方项系数（铜损）
     float k2_w = chassis_power_control->PowerCtrl[1].K2;  //转速平方项系数
@@ -588,10 +709,10 @@ void PowerLimit(Chassis_Info_Typedef *chassis_power_control)
     float expected_total_power = k4_w;  //先算上空载损耗
     for (int i = 0; i < 4; i++)
     {
-        if (!Chassis_Motor[i].is_offline)
+        if (!Wheel_Motor[i].is_offline)
         {
-            float w_w = chassis_power_control->chassis_motor_fdb[i].Data.Velocity;  //转速
-					float i_w = chassis_power_control->chassis_motor_set[i].current_set;      //PID算出的要发给电机的电流
+            float w_w = chassis_power_control->wheel_motor_fdb[i].Data.Velocity;  //转速
+					float i_w = chassis_power_control->wheel_motor_set[i].current_set;      //PID算出的要发给电机的电流
             float p_w = k1_w * i_w * i_w + k2_w * w_w * w_w + k3_w * i_w * w_w;     
 					if (p_w < 0.0f) p_w = 0.0f;  //负功率（制动）不算
 					expected_total_power += p_w;  //expecter_total_power ：如果不限功率，这一帧会耗多少电
@@ -681,73 +802,14 @@ void PowerLimit(Chassis_Info_Typedef *chassis_power_control)
     float final_predict_wheel = 0.0f;
     for (int i = 0; i < 4; i++)
     {
-        if (!Chassis_Motor[i].is_offline)
+        if (!Wheel_Motor[i].is_offline)
         {
-            float w_w = chassis_power_control->chassis_motor_fdb[i].Data.Velocity;
-            float i_w = chassis_power_control->chassis_motor_set[i].current_set;
+            float w_w = chassis_power_control->wheel_motor_fdb[i].Data.Velocity;
+            float i_w = chassis_power_control->wheel_motor_set[i].current_set;
             float p_w = k1_w * i_w * i_w + k2_w * w_w * w_w + k3_w * i_w * w_w;
             if (p_w > 0.0f) final_predict_wheel += p_w;
         }
     }
 }
 
-/**
- * @brief 把发射数据打包成 CAN 帧发给云台（ID 0x23，走 FDCAN2）
- * @note  【裁判系统枪口热量规则】(底盘自己不控射速，只把热量数据转发给云台算射速)
- *         设热量上限 Q0(heatlimit)、当前热量 Q1(heat)：
- *           - 每检测到 1 发 17mm 弹 → Q1+10；1 发 42mm 弹 → Q1+100
- *           - 热量按 10Hz 结算冷却，每周期降 (每秒冷却值/10)
- *         超限惩罚：Q1>Q0 时 FPV 画面变花；Q0<Q1<2Q0 每 100ms 扣血
- *         (Q1-Q0)/250×最大血量；Q1≥2Q0 立刻扣血并重置 Q1=2Q0。
- *         所以云台要控制 Q1 始终低于 Q0，靠冷却值「回血」。
- *  @note  数据格式：speed×100 存 int16（Data[0..1]），heat/heatlimit/cooling_value
- *        各占 16bit（大端：高字节在前）。speed==0 时默认 11.5 作兜底值。
- * @param FDCAN_TxFrame 发送帧结构体指针
- * @param speed 弹速 (m/s)
- * @param heat 枪口当前热量 Q1
- * @param heatlimit 枪口热量上限 Q0
- * @param shooter_barrel_cooling_value 枪管每秒冷却值
- * @retval 无
- */
-void Transmit_Shoot_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, float speed, int16_t heat, int16_t heatlimit, int16_t shooter_barrel_cooling_value)
-{
-    if (speed == 0.0f) speed = 11.5f;
 
-    int16_t float_to_int16 = (int16_t)(speed * 100.0f);
-    FDCAN_TxFrame->Header.Identifier = 0x23;
-
-    FDCAN_TxFrame->Data[0] = (uint8_t)(float_to_int16 >> 8);
-    FDCAN_TxFrame->Data[1] = (uint8_t)(float_to_int16);
-    FDCAN_TxFrame->Data[2] = (uint8_t)(heat >> 8);
-    FDCAN_TxFrame->Data[3] = (uint8_t)(heat);
-
-    FDCAN_TxFrame->Data[4] = (uint8_t)(heatlimit >> 8);
-    FDCAN_TxFrame->Data[5] = (uint8_t)(heatlimit);
-    FDCAN_TxFrame->Data[6] = (uint8_t)(shooter_barrel_cooling_value >> 8);
-    FDCAN_TxFrame->Data[7] = (uint8_t)(shooter_barrel_cooling_value);
-
-    USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);
-}
-
-/**
- * @brief 把 8 字节原始数据透传给云台（CAN ID 0x25）
- * @note  Data 区 8 字节原样拷贝，用于底盘↔云台之间的通用透传。
- * @param FDCAN_TxFrame 发送帧结构体指针
- * @param Rxdata 待透传的 8 字节数据
- * @retval 无
- */
-void SentShootToGimbal(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, uint8_t *Rxdata)
-{
-    FDCAN_TxFrame->Header.Identifier = 0x25;
-
-    FDCAN_TxFrame->Data[0] = Rxdata[0];
-    FDCAN_TxFrame->Data[1] = Rxdata[1];
-    FDCAN_TxFrame->Data[2] = Rxdata[2];
-    FDCAN_TxFrame->Data[3] = Rxdata[3];
-    FDCAN_TxFrame->Data[4] = Rxdata[4];
-    FDCAN_TxFrame->Data[5] = Rxdata[5];
-    FDCAN_TxFrame->Data[6] = Rxdata[6];
-    FDCAN_TxFrame->Data[7] = Rxdata[7];
-
-    USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);
-}

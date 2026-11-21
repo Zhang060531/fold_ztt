@@ -46,7 +46,8 @@
   ..\Components\Device\Inc\legacy_encoder.h \
   ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
   ..\Drivers\CMSIS\Include\cmsis_compiler.h \
-  ..\Components\Algorithm\Inc\RLS.h ..\Components\RMUI\Inc\ui.h \
+  ..\Components\Algorithm\Inc\RLS.h \
+  ..\Components\Algorithm\Inc\User_lib.h ..\Components\RMUI\Inc\ui.h \
   ..\Components\RMUI\Inc\ui_interface.h \
   ..\Components\RMUI\Inc\ui_types.h ..\Core\Inc\usart.h \
   ..\Components\RMUI\Inc\ui_g.h \

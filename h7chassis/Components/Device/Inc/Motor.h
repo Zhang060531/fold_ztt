@@ -38,20 +38,29 @@
 #include "bsp_can.h"
 #include "stdbool.h"
 
-/* 电机编号宏(数组下标用) */
-#define M1 0     /* 电机1 */
-#define M2 1     /* 电机2 */
-#define M3 2     /* 电机3 */
-#define M4 3     /* 电机4 */
+// 电机编号宏
+//轮电机
+#define M1 0     
+#define M2 1     
+#define M3 2     
+#define M4 3   
+//舵电机
+#define Forward_R 0
+#define Forward_L 1
+#define Back_R    2
+#define Back_L    3
+
 #define YAW 4    /* 云台 yaw 轴电机 */
 #define SHOOT 5  /* 发射机构电机 */
 
-/* 离线检测超时时间 (ms): 超过该时长未收到反馈即判定电机离线 */
+//离线检测超时时间 (ms): 超过该时长未收到反馈即判定电机离线 
 #define MOTOR_OFFLINE_TIMEOUT 100
-
-
-#define STEER_MOTOR_ID_MIN 1
-#define STEER_MOTOR_ID_MAX 4
+  
+////舵电机的零点 (舵轮指向正前方时编码器的读数)
+//#define Forward_R_ecd  0  //0号
+//#define Forward_L_ecd  0	//1号 
+//#define Back_R_ecd     0  //2号 
+//#define Back_L_ecd     0	//3号   	 
 
 /**
  * @brief 大疆经典 CAN 电机型号
@@ -170,6 +179,15 @@ typedef struct
   int16_t current_set;
   float current_set_f;
   int16_t current_set_limited;
+	
+	//下面是舵电机专用的
+	float target_angle_deg;  //目标舵角
+	float target_speed;      //目标转速(m/s)
+	
+	float dir_flag;          //驱动轮方向 +1 / -1     
+	
+	float cosk;              //cos的3次方 补偿系数  
+	
 } DJI_Motor_Contorl_Info_Typedef;
 
 
@@ -199,7 +217,9 @@ typedef struct
 } DM_Motor_Contorl_Info_Typedef;
 
 /* Externs ------------------------------------------------------------------*/
-extern DJI_Motor_Info_Typedef Shoot_Motor,Chassis_Motor[4];
+extern DJI_Motor_Info_Typedef Shoot_Motor;
+
+extern DJI_Motor_Info_Typedef Wheel_Motor[4];
 
 extern DJI_Motor_Info_Typedef Steer_Motor[4];
 
@@ -209,8 +229,8 @@ extern DM_Motor_Contorl_Info_Typedef DM_Motor_Contorl_Info[4];
 /* Function Prototypes */
 /* --- 大疆经典 CAN 电机 --- */
 extern void DJI_Motor_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf,DJI_Motor_Info_Typedef *DJI_Motor);
-extern void TransmitChassisMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2, int16_t m3, int16_t m4);
-extern void TransmitsteerMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2, int16_t m3, int16_t m4);
+extern void TransmitWheelMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2, int16_t m3, int16_t m4);
+extern void TransmitSteerMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2, int16_t m3, int16_t m4);
 extern void TransmitShootMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t shoot_current);
 
 /* --- 达妙 DM 电机(MIT 协议) --- */

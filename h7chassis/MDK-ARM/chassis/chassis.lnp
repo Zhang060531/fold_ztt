@@ -30,6 +30,7 @@
 ".\chassis\ramp.o"
 ".\chassis\rls.o"
 ".\chassis\crc.o"
+".\chassis\user_lib.o"
 ".\chassis\ui_g.o"
 ".\chassis\ui_interface.o"
 ".\chassis\startup_stm32h723xx.o"

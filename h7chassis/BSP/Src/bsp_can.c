@@ -50,10 +50,7 @@
  * ===== ======================================================================== */
 
 /* 前向声明：本文件给上层任务提供的数据读取接口(实现在本文件下方) */
-uint32_t GetChassisMotor1Fdb(DJI_Motor_Info_Typedef * motor);   /* 读底盘 1 号轮电机反馈 */
-uint32_t GetChassisMotor2Fdb(DJI_Motor_Info_Typedef * motor);   /* 读底盘 2 号轮电机反馈 */
-uint32_t GetChassisMotor3Fdb(DJI_Motor_Info_Typedef * motor);   /* 读底盘 3 号轮电机反馈 */
-uint32_t GetChassisMotor4Fdb(DJI_Motor_Info_Typedef * motor);   /* 读底盘 4 号轮电机反馈 */
+
 uint32_t GetShootFdb(DJI_Motor_Info_Typedef * motor);           /* 读拨弹电机反馈 */
 
 uint32_t GetYawMotorFdb(DM_Motor_Info_Typedef* motor);          /* 读 DM4310 yaw 电机反馈 */
@@ -244,6 +241,8 @@ void BSP_FDCAN_Init(void)
  *
  * @param hfdcan CAN编号
  * @param ErrorStatusITs 错误状态
+ * @note  当 CAN 总线进入 BUS_OFF(总线离线)状态时，停止再重新启动该路 CAN 尝试恢复。
+ *        并按是哪一路 CAN 分别计数，方便定位是哪一路总线在反复掉线。
  */
 void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t ErrorStatusITs)
 {
@@ -296,7 +295,6 @@ void SuperPower_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, SuperPower_In
 
 //
 }
-
 
 /**
   * @brief  解析云台状态帧(0x22)并更新 GiambalData
@@ -376,7 +374,89 @@ void Chassis_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, Chassis_Info_Typ
     ChassisData->reset_flag = (Rx_Buf[6] << 8) | Rx_Buf[7];                       /* 复位标志(来自云台) */
 
 }
+/**
+  * @brief  向电管发送底盘目标功率(帧 0x210)
+  * @param  FDCAN_TxFrame 指向发送帧结构体(填 hcan 与 Header，此处填 ID 与 Data)
+  * @param  set_power     目标功率(W)
+  * @retval 无
+  * @note   编码方式与接收 0x211 相反：功率放大 10 倍再加 0x7fff 偏移，
+  *         低字节在前(Data[0] 低位, Data[1] 高位)。
+  */
+void Sent_Superpower_Data(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,float set_power)//uint16_t temp_power
+{
+	  uint16_t temp_set_power = (set_power) * 10 + 0x7fff;   /* 功率 W -> 放大10倍 + 0x7fff 偏移 */
+    FDCAN_TxFrame->Header.Identifier = 0x210;              /* 电管目标功率帧 ID */
+    FDCAN_TxFrame->Data[0] = temp_set_power;               /* 低字节 */
+    FDCAN_TxFrame->Data[1] = temp_set_power >> 8;          /* 高字节 */
+    FDCAN_TxFrame->Data[2] = 0;
+    FDCAN_TxFrame->Data[3] = 0;
+    FDCAN_TxFrame->Data[4] = 0;
+    FDCAN_TxFrame->Data[5] = 0;
+    FDCAN_TxFrame->Data[6] = 0;
+    FDCAN_TxFrame->Data[7] = 0;
+    USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);         /* 塞进发送 FIFO */
+}
 
+/**
+ * @brief 把发射数据打包成 CAN 帧发给云台（ID 0x23，走 FDCAN2）
+ * @note  【裁判系统枪口热量规则】(底盘自己不控射速，只把热量数据转发给云台算射速)
+ *         设热量上限 Q0(heatlimit)、当前热量 Q1(heat)：
+ *           - 每检测到 1 发 17mm 弹 → Q1+10；1 发 42mm 弹 → Q1+100
+ *           - 热量按 10Hz 结算冷却，每周期降 (每秒冷却值/10)
+ *         超限惩罚：Q1>Q0 时 FPV 画面变花；Q0<Q1<2Q0 每 100ms 扣血
+ *         (Q1-Q0)/250×最大血量；Q1≥2Q0 立刻扣血并重置 Q1=2Q0。
+ *         所以云台要控制 Q1 始终低于 Q0，靠冷却值「回血」。
+ *  @note  数据格式：speed×100 存 int16（Data[0..1]），heat/heatlimit/cooling_value
+ *        各占 16bit（大端：高字节在前）。speed==0 时默认 11.5 作兜底值。
+ * @param FDCAN_TxFrame 发送帧结构体指针
+ * @param speed 弹速 (m/s)
+ * @param heat 枪口当前热量 Q1
+ * @param heatlimit 枪口热量上限 Q0
+ * @param shooter_barrel_cooling_value 枪管每秒冷却值
+ * @retval 无
+ */
+void Transmit_Shoot_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, float speed, int16_t heat, int16_t heatlimit, int16_t shooter_barrel_cooling_value)
+{
+    if (speed == 0.0f) speed = 11.5f;
+
+    int16_t float_to_int16 = (int16_t)(speed * 100.0f);
+    FDCAN_TxFrame->Header.Identifier = 0x23;
+
+    FDCAN_TxFrame->Data[0] = (uint8_t)(float_to_int16 >> 8);
+    FDCAN_TxFrame->Data[1] = (uint8_t)(float_to_int16);
+    FDCAN_TxFrame->Data[2] = (uint8_t)(heat >> 8);
+    FDCAN_TxFrame->Data[3] = (uint8_t)(heat);
+
+    FDCAN_TxFrame->Data[4] = (uint8_t)(heatlimit >> 8);
+    FDCAN_TxFrame->Data[5] = (uint8_t)(heatlimit);
+    FDCAN_TxFrame->Data[6] = (uint8_t)(shooter_barrel_cooling_value >> 8);
+    FDCAN_TxFrame->Data[7] = (uint8_t)(shooter_barrel_cooling_value);
+
+    USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);
+}
+
+/**
+ * @brief 把 8 字节原始数据透传给云台（CAN ID 0x25）
+ * @note  Data 区 8 字节原样拷贝，用于底盘↔云台之间的通用透传。
+ * @param FDCAN_TxFrame 发送帧结构体指针
+ * @param Rxdata 待透传的 8 字节数据
+ * @retval 无
+ */
+void SentShootToGimbal(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, uint8_t *Rxdata)
+{
+    FDCAN_TxFrame->Header.Identifier = 0x25;
+
+    FDCAN_TxFrame->Data[0] = Rxdata[0];
+    FDCAN_TxFrame->Data[1] = Rxdata[1];
+    FDCAN_TxFrame->Data[2] = Rxdata[2];
+    FDCAN_TxFrame->Data[3] = Rxdata[3];
+    FDCAN_TxFrame->Data[4] = Rxdata[4];
+    FDCAN_TxFrame->Data[5] = Rxdata[5];
+    FDCAN_TxFrame->Data[6] = Rxdata[6];
+    FDCAN_TxFrame->Data[7] = Rxdata[7];
+
+    USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);
+}
 
 /**
   * @brief  FDCAN1 收到帧(FIFO0)后的解析分发函数
@@ -389,10 +469,11 @@ void Chassis_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf, Chassis_Info_Typ
 static void FDCAN1_RxFifo0RxHandler(uint32_t *Identifier, uint8_t Data[8])
 {
 
-    DJI_Motor_Info_Update(Identifier, Data, &Chassis_Motor[0]);   /* 底盘 1 号轮电机(收 0x201) */
-    DJI_Motor_Info_Update(Identifier, Data, &Chassis_Motor[1]);   /* 底盘 2 号轮电机(收 0x202) */
-    DJI_Motor_Info_Update(Identifier, Data, &Chassis_Motor[2]);   /* 底盘 3 号轮电机(收 0x203) */
-    DJI_Motor_Info_Update(Identifier, Data, &Chassis_Motor[3]);   /* 底盘 4 号轮电机(收 0x204) */
+    DJI_Motor_Info_Update(Identifier, Data, &Wheel_Motor[0]);   /* 底盘 1 号轮电机(收 0x201) */
+    DJI_Motor_Info_Update(Identifier, Data, &Wheel_Motor[1]);   /* 底盘 2 号轮电机(收 0x202) */
+    DJI_Motor_Info_Update(Identifier, Data, &Wheel_Motor[2]);   /* 底盘 3 号轮电机(收 0x203) */
+    DJI_Motor_Info_Update(Identifier, Data, &Wheel_Motor[3]);   /* 底盘 4 号轮电机(收 0x204) */
+	
     DJI_Motor_Info_Update(Identifier, Data, &Shoot_Motor);        /* 拨弹电机(收 0x205) */
     SuperPower_Info_Update(Identifier, Data, &PowerData);         /* 电管功率(收 0x211) */
 
@@ -411,13 +492,14 @@ static void FDCAN3_RxFifo0RxHandler(uint32_t *Identifier, uint8_t Data[8])
 	
 	  //注意: 当前为空，视觉/妙算(FDCAN3)的接收帧未做任何解析，如需使用在此补充 */
 		//Encoder_Info_Update(Identifier,Data,&EncoderData);
-			/* 把收到的这一帧，喂给 4 个编码器；每个内部自己判断“是不是我的帧” */
-    LegacyEncoder_OnCanFrame(&g_enc[0], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
-    //LegacyEncoder_OnCanFrame(&g_enc[1], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
-    //LegacyEncoder_OnCanFrame(&g_enc[2], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
-    //LegacyEncoder_OnCanFrame(&g_enc[3], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
+		
+//		//四个舵电机 id分别为0x201~0x204
+//		DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[0]);   
+//    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[1]);  
+//    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[2]);   
+//    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[3]);   
+		LegacyEncoder_OnCanFrame(&g_enc[0], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
 }
-
 
 /**
   * @brief  FDCAN2 收到帧(FIFO1)后的解析分发函数(DM4310 + 与云台通信)
@@ -431,56 +513,67 @@ static void FDCAN2_RxFifo1RxHandler(uint32_t *Identifier, uint8_t Data[8])
     Gimbal_Info_Update(Identifier, Data, &GiambalData);           /* 云台状态(收 0x22) */
     Chassis_Info_Update(Identifier, Data, &ChassisData);          /* 底盘速度指令(收 0x21) */
 	  DM_Motor_Info_Update(Identifier, Data, &DM_4310_Motor[0]);   /* DM4310 回传(收 0x12) */
-		
-		DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[0]);   /* 底盘 1 号轮电机(收 0x201) */
-    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[1]);   /* 底盘 2 号轮电机(收 0x202) */
-    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[2]);   /* 底盘 3 号轮电机(收 0x203) */
-    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[3]);   /* 底盘 4 号轮电机(收 0x204) */
+	
+		//四个舵电机 id分别为0x201~0x204
+		DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[0]);   
+    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[1]);  
+    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[2]);   
+    DJI_Motor_Info_Update(Identifier, Data, &Steer_Motor[3]);  
+		//把收到的这一帧，喂给 4 个编码器；每个内部自己判断“是不是我的帧” 
+    //LegacyEncoder_OnCanFrame(&g_enc[0], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
+    //LegacyEncoder_OnCanFrame(&g_enc[1], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
+    //LegacyEncoder_OnCanFrame(&g_enc[2], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
+    //LegacyEncoder_OnCanFrame(&g_enc[3], &FDCAN_RxFIFO0Frame.Header, FDCAN_RxFIFO0Frame.Data);
 }
 
-/**
- * @brief HAL库CAN错误中断
- *
- * @param hfdcan CAN编号
- * @param ErrorStatusITs 错误状态
- * @note  当 CAN 总线进入 BUS_OFF(总线离线)状态时，停止再重新启动该路 CAN 尝试恢复。
- *        并按是哪一路 CAN 分别计数，方便定位是哪一路总线在反复掉线。
- */
-//void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t ErrorStatusITs)
-//{
-//    if ((ErrorStatusITs & FDCAN_IT_BUS_OFF) != RESET)
-//    {
-//        // CAN总线离线, 重新启动CAN
-//        HAL_FDCAN_Stop(hfdcan);
-//        HAL_FDCAN_Start(hfdcan);
 
-//    }
-//}
+// ===== 电机反馈读取接口 =====
+//这些函数把某个电机实例的数据整体拷出(*motor = xxx)，并返回该电机最后一次
+//收到反馈的时间戳(xTaskGetTickCount 的 tick 值)。上层任务据此判断数据新旧。
+ //四个轮电机反馈
+uint32_t GetWheelMotor1Fdb(DJI_Motor_Info_Typedef * motor)
+{
+    *motor = Wheel_Motor[0];
+    return Wheel_Motor[0].Motor_time;
+}
+uint32_t GetWheelMotor2Fdb(DJI_Motor_Info_Typedef * motor)
+{
+    *motor = Wheel_Motor[1];
+    return Wheel_Motor[1].Motor_time;
+}
+uint32_t GetWheelMotor3Fdb(DJI_Motor_Info_Typedef * motor)
+{
+    *motor = Wheel_Motor[2];
+    return Wheel_Motor[2].Motor_time;
+}
+uint32_t GetWheelMotor4Fdb(DJI_Motor_Info_Typedef * motor)
+{
+    *motor = Wheel_Motor[3];
+    return Wheel_Motor[3].Motor_time;
+}
 
-/* ===== 电机反馈读取接口 =====
- * 这些函数把某个电机实例的数据整体拷出(*motor = xxx)，并返回该电机最后一次
- * 收到反馈的时间戳(xTaskGetTickCount 的 tick 值)。上层任务据此判断数据新旧。 */
+//四个舵电机反馈
+uint32_t GetSteerMotor1Fdb(DJI_Motor_Info_Typedef * motor)
+{
+    *motor = Steer_Motor[0];
+    return Steer_Motor[0].Motor_time;
+}
+uint32_t GetSteerMotor2Fdb(DJI_Motor_Info_Typedef * motor)
+{
+    *motor = Steer_Motor[1];
+    return Steer_Motor[1].Motor_time;
+}
+uint32_t GetSteerMotor3Fdb(DJI_Motor_Info_Typedef * motor)
+{
+    *motor = Steer_Motor[2];
+    return Steer_Motor[2].Motor_time;
+}
+uint32_t GetSteerMotor4Fdb(DJI_Motor_Info_Typedef * motor)
+{
+    *motor = Steer_Motor[3];
+    return Steer_Motor[3].Motor_time;
+}
 
-uint32_t GetChassisMotor1Fdb(DJI_Motor_Info_Typedef * motor)
-{
-    *motor = Chassis_Motor[0];
-    return Chassis_Motor[0].Motor_time;
-}
-uint32_t GetChassisMotor2Fdb(DJI_Motor_Info_Typedef * motor)
-{
-    *motor = Chassis_Motor[1];
-    return Chassis_Motor[1].Motor_time;
-}
-uint32_t GetChassisMotor3Fdb(DJI_Motor_Info_Typedef * motor)
-{
-    *motor = Chassis_Motor[2];
-    return Chassis_Motor[2].Motor_time;
-}
-uint32_t GetChassisMotor4Fdb(DJI_Motor_Info_Typedef * motor)
-{
-    *motor = Chassis_Motor[3];
-    return Chassis_Motor[3].Motor_time;
-}
 uint32_t GetShootFdb(DJI_Motor_Info_Typedef * motor)
 {
     *motor = Shoot_Motor;
@@ -521,28 +614,6 @@ void GetSuperData(SuperPower_Info_Typedef* data)
     *data = PowerData;
 }
 
-/**
-  * @brief  向电管发送底盘目标功率(帧 0x210)
-  * @param  FDCAN_TxFrame 指向发送帧结构体(填 hcan 与 Header，此处填 ID 与 Data)
-  * @param  set_power     目标功率(W)
-  * @retval 无
-  * @note   编码方式与接收 0x211 相反：功率放大 10 倍再加 0x7fff 偏移，
-  *         低字节在前(Data[0] 低位, Data[1] 高位)。
-  */
-void Sent_Superpower_Data(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,float set_power)//uint16_t temp_power
-{
-	  uint16_t temp_set_power = (set_power) * 10 + 0x7fff;   /* 功率 W -> 放大10倍 + 0x7fff 偏移 */
-    FDCAN_TxFrame->Header.Identifier = 0x210;              /* 电管目标功率帧 ID */
-    FDCAN_TxFrame->Data[0] = temp_set_power;               /* 低字节 */
-    FDCAN_TxFrame->Data[1] = temp_set_power >> 8;          /* 高字节 */
-    FDCAN_TxFrame->Data[2] = 0;
-    FDCAN_TxFrame->Data[3] = 0;
-    FDCAN_TxFrame->Data[4] = 0;
-    FDCAN_TxFrame->Data[5] = 0;
-    FDCAN_TxFrame->Data[6] = 0;
-    FDCAN_TxFrame->Data[7] = 0;
-    USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);         /* 塞进发送 FIFO */
-}
 
 /**
   * @brief  FDCAN 接收 FIFO0 中断回调(由 HAL 在 RX FIFO0 新消息中断里调用)
@@ -590,30 +661,3 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 
 }
 
-/* int16 -> float：正确处理符号位(等价于简单强转) */
-float Int16ToFloat(int16_t data)
-{
-    if (data >= 0)
-    {
-        return (float)data;
-    }
-    else
-    {
-        float temp = (float) - data;
-        return -temp;
-    }
-}
-
-/* int16 -> int32：正确处理符号位 */
-int Int16ToInt32(int16_t data)
-{
-    if (data >= 0)
-    {
-        return (int)data;
-    }
-    else
-    {
-        int temp = (int) - data;
-        return -temp;
-    }
-}

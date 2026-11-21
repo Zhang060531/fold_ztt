@@ -30,6 +30,7 @@
 ".\gimbal\ramp.o"
 ".\gimbal\rls.o"
 ".\gimbal\crc.o"
+".\gimbal\user_lib.o"
 ".\gimbal\startup_stm32h723xx.o"
 ".\gimbal\vofa.o"
 ".\gimbal\main.o"

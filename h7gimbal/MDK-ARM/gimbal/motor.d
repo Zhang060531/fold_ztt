@@ -61,5 +61,6 @@
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\task.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\list.h \
   ..\Components\Device\Inc\vision.h ..\Application\Task\Inc\Shoot_Task.h \
+  ..\Components\Algorithm\Inc\User_lib.h \
   ..\Components\Algorithm\Inc\Quaternion.h \
   ..\Components\Device\Inc\remote_control.h

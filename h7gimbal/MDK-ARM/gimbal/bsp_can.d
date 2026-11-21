@@ -57,6 +57,7 @@
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\queue.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\task.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\list.h \
+  ..\Components\Algorithm\Inc\User_lib.h \
   ..\Components\Algorithm\Inc\Quaternion.h \
   ..\Components\Algorithm\Inc\Kalman_Filter.h \
   ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \

@@ -93,11 +93,6 @@ SuperPower_Info_Typedef;
 
 
 
-/* int16 -> float 转换(处理符号位，等价于简单强转) */
-float Int16ToFloat(int16_t data);
-/* int16 -> int32 转换(处理符号位) */
-int Int16ToInt32(int16_t data);
-
 
 
 /* Externs ------------------------------------------------------------------*/
@@ -110,6 +105,12 @@ extern void BSP_FDCAN_Init(void);                /*!< 初始化三路 FDCAN 的�
 extern float uint_to_float(int X_int, float X_min, float X_max, int Bits);   /*!< uint 整数 -> 浮点物理量(DM 电机用) */
 extern  int float_to_uint(float x, float x_min, float x_max, int bits);      /*!< 浮点物理量 -> uint 整数(DM 电机用) */
 extern void Sent_Superpower_Data(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,float set_power);//uint16_t temp_power /*!< 向电管发送目标功率(帧 0x210) */
+
+extern void Transmit_Shoot_Info(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, float speed, int16_t heat, int16_t heatlimit, int16_t shooter_barrel_cooling_value);
+
+//!!!?
+extern void SentShootToGimbal(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame, uint8_t *Rxdata);
+
 
 #endif
 

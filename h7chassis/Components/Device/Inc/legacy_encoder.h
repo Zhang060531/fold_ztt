@@ -15,12 +15,12 @@ typedef enum {
 
 //一个编码器的(状态+数据)结构体
 typedef struct {
-    FDCAN_HandleTypeDef *hcan;      //挂在哪一路CAN（fdcan3）
+    FDCAN_HandleTypeDef *hcan;      //挂在哪一路CAN（fdcan2）
     uint16_t node_id;               //当前编码器节点号(发帧ID)
     uint16_t pending_node_id;       //
-    uint8_t last_command;           // 
+    uint8_t last_command;           //
     float angle_deg;                //
-    uint32_t reported_id;           //  
+		uint32_t reported_id;           //这个没啥用好像
 } LegacyEncoder;
 
 void LegacyEncoder_Init(LegacyEncoder *dev, FDCAN_HandleTypeDef *hcan, uint16_t node_id);

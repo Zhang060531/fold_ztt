@@ -10,6 +10,8 @@
 #include "remote_control.h"
 #include "Motor.h"
 
+
+#include "User_lib.h"
 /**
  * =====================================================================
  * 文件说明：云台控制任务头文件 (Control_Task.h)
@@ -30,7 +32,7 @@
  *  - 底盘跟随 PID 在 FOLLOW_PID_* 一组
  * =====================================================================
  */
-#define CHANNEL_PITCH_SCALE_FACTOR 9000.0f  // 俯仰摇杆→角度系数(越大动得越慢)     //9000
+#define CHANNEL_PITCH_SCALE_FACTOR 2000.0f  // 俯仰摇杆→角度系数(越大动得越慢)     //9000
 #define CHANNEL_YAW_SCALE_FACTOR 3000.0f    // 偏航摇杆→角度系数                   //5000
 #define MOUSE_SCALE_FACTOR 200.0f           // 鼠标→角度系数
 #define KEY_SCALE_FACTOR 20.0f              // 键盘→底盘速度系数
@@ -57,7 +59,7 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
  * ===================================================================== */
 
 /* ---- 俯仰轴 外环(角度环) —— 手动控制 ---- */
-#define PITCH_SHELL_PID_KP 50
+#define PITCH_SHELL_PID_KP 60
 #define PITCH_SHELL_PID_KI 0
 #define PITCH_SHELL_PID_KD 1
 #define PITCH_SHELL_PID_MAX_IOUT 100   // 积分限幅(°/s)
@@ -65,11 +67,11 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 
 /* ---- 俯仰轴 内环(角速度环) —— 手动控制 ----
  * 注意 KP 是负数：pitch 电机安装方向与 yaw 相反，需要反号才能负反馈 */
-#define PITCH_CORE_PID_KP 0.01
-#define PITCH_CORE_PID_KI -0
+#define PITCH_CORE_PID_KP 0.1
+#define PITCH_CORE_PID_KI 0
 #define PITCH_CORE_PID_KD 0
 #define PITCH_CORE_PID_MAX_IOUT 0.5
-#define PITCH_CORE_PID_MAX_OUT 2.5   // 输出限幅(力矩上限 N·m)
+#define PITCH_CORE_PID_MAX_OUT 5.5   // 输出限幅(力矩上限 N·m)
 
 /* ---- 偏航轴 外环(角度环) —— 手动控制 ---- */
 #define YAW_SHELL_PID_KP 20
@@ -181,21 +183,51 @@ extern volatile float yaw_vel_ff_gain;    /*【新增】速度前馈增益 (0~1)
 #define GM6020_BRAKE_POWER_ON()   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, GPIO_PIN_SET)
 #define GM6020_BRAKE_POWER_OFF()  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, GPIO_PIN_RESET)
 
-/* 大 pitch 抱闸动作时序。 */
+// 大 pitch 抱闸动作时序。
 #define GM6020_BRAKE_RELEASE_WAIT_MS   100U   //抱闸通电后等待机械释放
 #define GM6020_BRAKE_SETTLE_TIME_MS    100U   //进入目标死区后连续稳定多久才断抱闸
 #define GM6020_BRAKE_ENGAGE_HOLD_MS     50U   //抱闸断电后继续闭环保持，等待机械咬合
 #define GM6020_BRAKE_SETTLE_SPEED_RPM   10.0f //到位稳定判定允许的最大转速
 #define GM6020_FEEDBACK_TIMEOUT_MS     100U   //GM6020 反馈超时后停止输出并抱闸
 
-/* 大 pitch 重力前馈。
- * 折叠方向认为受重力下拉，因此重力前馈方向与折叠方向相反。
- * 先给较小值测试：如果松闸后有向上冲的趋势，减小 VOLTAGE；
- * 如果松闸后仍然明显下坠，逐步增大 VOLTAGE。
- * 如果方向完全反了，把 SIGN 改成 +1.0f。 */
-#define GM6020_GRAVITY_FF_VOLTAGE       2100.0f
-#define GM6020_GRAVITY_FF_SIGN \
-    ((GM6020_FOLD_ANGLE > GM6020_EXTEND_ANGLE) ? -1.0f : 1.0f)
+///* 大 pitch 重力前馈。
+// * 折叠方向认为受重力下拉，因此重力前馈方向与折叠方向相反。
+// * 先给较小值测试：如果松闸后有向上冲的趋势，减小 VOLTAGE；
+// * 如果松闸后仍然明显下坠，逐步增大 VOLTAGE。
+// * 如果方向完全反了，把 SIGN 改成 +1.0f。 */
+//#define GM6020_GRAVITY_FF_VOLTAGE       2100.0f
+//#define GM6020_GRAVITY_FF_SIGN \
+//    ((GM6020_FOLD_ANGLE > GM6020_EXTEND_ANGLE) ? -1.0f : 1.0f)
+
+////大pitch重力前馈(余弦建模)
+////重力力矩 = K*cos(a-b)
+////a = GM6020_Motor.Data.Angle(当前大pitch角度)
+////b = 重臂最大(大pitch水平)时的角度读数 待标定
+////K = 水平位刚好悬停所需的前馈电压 待标定
+////SIGN = 方向 标定时试出松闸不掉的方向
+//#define GM6020_GRAVITY_FF_VOLTAGE    2100.0f   //K  
+//#define GM6020_GRAVITY_FF_SIGN       -1.0f     //SIGN
+
+/* 大 pitch 重力前馈 —— 正比 cos(仰角)。
+ * 伸展=垂直(仰角90°)→重力≈0；折叠=离水平30°(仰角30°)→重力≈0.87最大。
+ * K 直接取“折叠位(30°仰角)刚好悬停的电压”，公式里已按 cos 归一化。 */
+/* ==== 调参阶段：下面宏先注释，改用全局变量（Keil Watch 实时改），调好再换回宏 ==== */
+//#define GM6020_GRAVITY_FF_VOLTAGE       2600.0f   // K：折叠位悬停电压
+//#define GM6020_GRAVITY_FF_SIGN           -1.0f    // 方向 ±1
+//#define GM6020_EXTEND_ELEV_DEG           90.0f    // 伸展=垂直，仰角90°
+//#define GM6020_FOLD_ELEV_DEG             30.0f    // 折叠离水平约30°
+//#define GM6020_FOLD_SPEED_DEG_S          130.0f   // 全速巡航角速度(°/s)
+//#define GM6020_BRAKE_DIST_DEG            20.0f    // 最后N°线性减速到0
+
+/* 调参用全局变量（定义在 Control_Task.c），调试时在 Watch 窗口改 */
+extern volatile float gm6020_ff_voltage;        // K：折叠位悬停电压
+extern volatile float gm6020_ff_sign;           // 方向 ±1
+extern volatile float gm6020_extend_elev_deg;   // 伸展仰角(°)
+extern volatile float gm6020_fold_elev_deg;     // 折叠仰角(°)
+extern volatile float gm6020_speed_extend_deg_s;  // 伸展(立起来)巡航速度(°/s)
+extern volatile float gm6020_speed_fold_deg_s;    // 折叠(下去)巡航速度(°/s)
+extern volatile float gm6020_brake_dist_extend_deg;  // 伸展(立起来)刹车距离(°)
+extern volatile float gm6020_brake_dist_fold_deg;    // 折叠(下去)刹车距离(°)
 
 #ifndef NULL
 #define NULL 0
@@ -388,8 +420,12 @@ typedef enum
 typedef struct
 {
     float  target_angle;          //折叠/展开最终目标角度，单位：度
-    int16_t voltage;              //GM6020 双环 PID 输出，最终经 CAN 下发，范围约 -30000~30000
-    Gm6020_BrakeState_e brake_state; //当前抱闸时序状态，见 Gm6020_BrakeState_e
+    
+		float  cmd_angle;             //斜坡后的指令角(°)，PID 真正追的设定，每1ms朝 target_angle 逼近
+		
+		int16_t voltage;              //GM6020 双环 PID 输出，最终经 CAN 下发，范围约 -30000~30000
+    
+		Gm6020_BrakeState_e brake_state; //当前抱闸时序状态，见 Gm6020_BrakeState_e
     float release_hold_angle;     //RELEASING 阶段保持的角度，防止松闸瞬间下坠
     int16_t gravity_ff_voltage;   //当前重力前馈电压，方便在 Watch/VoFA 中观察
     uint32_t state_enter_ms;      //进入当前状态时的 FreeRTOS tick，用于计算各阶段等待时间

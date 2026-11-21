@@ -179,17 +179,17 @@ void UI_Data_Calculate(void)
     }
 
     /* ================= 8. 电机离线状态映射 (Wheel & Steer) ================= */
-    ui_g_4_wheel1->number = chassis.chassis_motor_fdb[0].is_offline ? 1 : 0;
-    ui_g_4_wheel1->color  = chassis.chassis_motor_fdb[0].is_offline ? 5 : 2; 
+    ui_g_4_wheel1->number = chassis.wheel_motor_fdb[0].is_offline ? 1 : 0;
+    ui_g_4_wheel1->color  = chassis.wheel_motor_fdb[0].is_offline ? 5 : 2; 
 
-    ui_g_4_wheel2->number = chassis.chassis_motor_fdb[1].is_offline ? 1 : 0;
-    ui_g_4_wheel2->color  = chassis.chassis_motor_fdb[1].is_offline ? 5 : 2; 
+    ui_g_4_wheel2->number = chassis.wheel_motor_fdb[1].is_offline ? 1 : 0;
+    ui_g_4_wheel2->color  = chassis.wheel_motor_fdb[1].is_offline ? 5 : 2; 
 
-    ui_g_4_wheel3->number = chassis.chassis_motor_fdb[2].is_offline ? 1 : 0;
-    ui_g_4_wheel3->color  = chassis.chassis_motor_fdb[2].is_offline ? 5 : 2; 
+    ui_g_4_wheel3->number = chassis.wheel_motor_fdb[2].is_offline ? 1 : 0;
+    ui_g_4_wheel3->color  = chassis.wheel_motor_fdb[2].is_offline ? 5 : 2; 
 
-    ui_g_4_wheel4->number = chassis.chassis_motor_fdb[3].is_offline ? 1 : 0;
-    ui_g_4_wheel4->color  = chassis.chassis_motor_fdb[3].is_offline ? 5 : 2; 
+    ui_g_4_wheel4->number = chassis.wheel_motor_fdb[3].is_offline ? 1 : 0;
+    ui_g_4_wheel4->color  = chassis.wheel_motor_fdb[3].is_offline ? 5 : 2; 
 
 	    /* ================= 9. 枪口指向圆点 ================= */
     /* 注: 下面一大段"枪口指向圆点坐标映射"代码已全部注释禁用，

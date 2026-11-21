@@ -46,7 +46,8 @@
   ..\Components\Device\Inc\Referee_System.h \
   ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
   ..\Drivers\CMSIS\Include\cmsis_compiler.h \
-  ..\Components\Algorithm\Inc\RLS.h ..\BSP\Inc\bsp_uart.h \
+  ..\Components\Algorithm\Inc\RLS.h \
+  ..\Components\Algorithm\Inc\User_lib.h ..\BSP\Inc\bsp_uart.h \
   ..\Components\Device\Inc\Remote_Control.h \
   ..\Components\Controller\Inc\PID.h ..\Components\Algorithm\Inc\lpf.h \
   ..\Application\Task\Inc\INS_Task.h ..\Components\Algorithm\Inc\ramp.h

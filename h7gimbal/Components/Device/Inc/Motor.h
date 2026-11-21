@@ -210,15 +210,6 @@ extern void DM_Motor_Info_Update(uint32_t *Identifier,uint8_t *Rx_Buf,DM_Motor_I
 extern void TransmitShootMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t shoot_current);
 extern void DM_Motor_Command(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,DM_Motor_Info_Typedef *DM_Motor,uint8_t CMD);
 extern void DM_Motor_CAN_TxMessage(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,DM_Motor_Info_Typedef *DM_Motor,float Postion, float Velocity, float KP, float KD, float Torque);
-extern void SectionTransform(float* output, float input, float out_min, float out_zero, float out_max, float in_min, float in_zero, float in_max);
-extern void MinMaxConstrain(float* input, float min, float max);
-extern float Abs(float num);
-extern float PreventFullCircleConstrain(float set, float fdb);
-extern float filter_FR1(float temp,float alpha);
-extern float filter_FR2(float temp,float alpha);
-
-extern float filter_sht(float temp,float alpha);
-extern void ConstrainLoop(float* output, float input, float min, float max);
 extern void TransmitFriMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2);
 extern void TransmitGM6020Voltage(FDCAN_TxFrame_TypeDef*FDCAN_TxFrame , int16_t voltage);
 extern void TransmitGM6020Current(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t Current);

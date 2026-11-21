@@ -62,6 +62,7 @@
   ..\Application\Task\Inc\Shoot_Task.h ..\Components\Device\Inc\Motor.h \
   ..\Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS_V2\cmsis_os.h \
   ..\Drivers\CMSIS\RTOS2\Include\cmsis_os2.h \
+  ..\Components\Algorithm\Inc\User_lib.h \
   ..\Components\Algorithm\Inc\Quaternion.h \
   ..\Components\Device\Inc\remote_control.h \
   ..\Application\Task\Inc\CAN_Task.h ..\Application\Task\Inc\INS_task.h \

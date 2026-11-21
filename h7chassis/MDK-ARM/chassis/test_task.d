@@ -46,5 +46,6 @@
   ..\Components\Device\Inc\legacy_encoder.h \
   ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
   ..\Drivers\CMSIS\Include\cmsis_compiler.h \
-  ..\Components\Algorithm\Inc\RLS.h ..\BSP\Inc\bsp_uart.h \
+  ..\Components\Algorithm\Inc\RLS.h \
+  ..\Components\Algorithm\Inc\User_lib.h ..\BSP\Inc\bsp_uart.h \
   ..\Application\Task\Inc\INS_Task.h

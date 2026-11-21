@@ -48,4 +48,5 @@
   ..\Middlewares\ST\ARM\DSP\Inc\arm_math.h \
   ..\Drivers\CMSIS\Include\cmsis_compiler.h \
   ..\Components\Algorithm\Inc\RLS.h \
+  ..\Components\Algorithm\Inc\User_lib.h \
   ..\Components\Device\Inc\Remote_Control.h ..\BSP\Inc\bsp_gpio.h

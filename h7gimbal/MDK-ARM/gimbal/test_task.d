@@ -64,6 +64,7 @@
   ..\Middlewares\Third_Party\FreeRTOS\Source\include\list.h \
   ..\Components\Device\Inc\vision.h ..\BSP\Inc\bsp_can.h \
   ..\Application\Task\Inc\Shoot_Task.h ..\Components\Device\Inc\Motor.h \
+  ..\Components\Algorithm\Inc\User_lib.h \
   ..\Components\Algorithm\Inc\Quaternion.h \
   ..\Components\Device\Inc\remote_control.h ..\BSP\Inc\bsp_uart.h \
   ..\Application\Task\Inc\INS_Task.h

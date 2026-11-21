@@ -60,7 +60,7 @@ bool LegacyEncoder_ReadId(LegacyEncoder *dev) {
 }
 //设上报频率
 bool LegacyEncoder_SetPeriodCode(LegacyEncoder *dev, uint8_t code) {
-    if ((code < 1U) || (code > 5U)) return false;
+    if ((code < 1U) || (code > 7U)) return false;
     return send_frame(dev, 0x06U, 8U, code);
 }
 //设零点

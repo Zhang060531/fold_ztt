@@ -36,6 +36,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "User_lib.h"
 /* 发射机构电机(M2006), 发 0x1FF / 收 0x205 */
 DJI_Motor_Info_Typedef Shoot_Motor =
 {
@@ -52,7 +53,7 @@ DJI_Motor_Info_Typedef Steer_Motor[4] = {
 };
 
 // 底盘 4 个轮电机(M3508), 同发 0x200, 分别收 0x201~0x204    放CAN1
-DJI_Motor_Info_Typedef Chassis_Motor[4] = {
+DJI_Motor_Info_Typedef Wheel_Motor[4] = {
     [0] = { .Type = DJI_M3508, .FDCANFrame = { .TxIdentifier = 0x200, .RxIdentifier = 0x201, } },
     [1] = { .Type = DJI_M3508, .FDCANFrame = { .TxIdentifier = 0x200, .RxIdentifier = 0x202, } },
     [2] = { .Type = DJI_M3508, .FDCANFrame = { .TxIdentifier = 0x200, .RxIdentifier = 0x203, } },
@@ -69,40 +70,6 @@ DM_Motor_Info_Typedef DM_4310_Motor[1]= {
     },
 };
 
-
-static int16_t float_to_int16(float value, float scale);
-static int32_t float_to_int32(float value, float scale);
-static uint32_t float_to_uint32(float value, float scale);
-static float int16_to_float(int16_t value, float scale);
-static float int32_to_float(int32_t value, float scale);
-static float uint32_to_float(uint32_t value, float scale);
-
-
-
-/* LK 数值转换辅助: 浮点 <-> 整数的线性缩放(value*scale 或 value/scale) */
-static int16_t float_to_int16(float value, float scale) { return (int16_t)(value * scale); }
-static int32_t float_to_int32(float value, float scale) { return (int32_t)(value * scale); }
-static uint32_t float_to_uint32(float value, float scale) { return (uint32_t)(value * scale); }
-static float int16_to_float(int16_t value, float scale) { return (float)value / scale; }
-static float int32_to_float(int32_t value, float scale) { return (float)value / scale; }
-static float uint32_to_float(uint32_t value, float scale) { return (float)value / scale; }
-
-/**
- * @brief 将 Input 环绕约束到 [Min_Value, Max_Value] 区间(用于角度环绕)
- * @param Input     输入值
- * @param Min_Value 区间下界
- * @param Max_Value 区间上界
- * @retval 约束后的值
- * @note  若 Max<Min 则直接返回原值; 否则按区间长度循环加减使其落回区间内。
- */
-float F_Loop_Constrain(float Input, float Min_Value, float Max_Value)
-{
-    if (Max_Value < Min_Value) return Input;
-    float len = Max_Value - Min_Value;    
-    if (Input > Max_Value) { do { Input -= len; } while (Input > Max_Value); }
-    else if (Input < Min_Value) { do { Input += len; } while (Input < Min_Value); }
-    return Input;
-}
 
 /**
  * @brief 大疆电机编码器 -> 累计角度(备用函数, 当前工程未调用)
@@ -192,7 +159,7 @@ void DJI_Motor_Info_Update(uint32_t *Identifier, uint8_t *Rx_Buf,DJI_Motor_Info_
  * @brief 下发 4 个底盘动力电机(M3508)电流指令, 帧 ID 0x200
  * @param m1~m4 4 个电机的电流值(电调单位, 大端序: 高字节在前)
  */
-void TransmitChassisMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2, int16_t m3, int16_t m4)
+void TransmitWheelMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2, int16_t m3, int16_t m4)
 {
     FDCAN_TxFrame->Header.Identifier = 0x200;
     FDCAN_TxFrame->Data[0] = (uint8_t)(m1 >> 8); FDCAN_TxFrame->Data[1] = (uint8_t)m1;
@@ -203,16 +170,17 @@ void TransmitChassisMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1
 }
 
 /**
- * @brief 下发 4 个舵向电机电流指令, 帧 ID 0x280
- * @param m1~m4 4 个电机的电流值(小端序: 低字节在前, 与大疆标准帧相反)
+ * @brief 下发 4 个舵向电机(M3508+C620)电流指令, 帧 ID 0x200
+ * @param m1~m4 4 个电机的电流值(大端序: 高字节在前, 与 DJI 标准帧一致)
  */
-void TransmitsteerMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2, int16_t m3, int16_t m4)
+void TransmitSteerMotorCurrent(FDCAN_TxFrame_TypeDef *FDCAN_TxFrame,int16_t m1, int16_t m2, int16_t m3, int16_t m4)
 {
-    FDCAN_TxFrame->Header.Identifier = 0x280;
-    FDCAN_TxFrame->Data[0] = (uint8_t)m1; FDCAN_TxFrame->Data[1] = (uint8_t)(m1 >> 8);
-    FDCAN_TxFrame->Data[2] = (uint8_t)m2; FDCAN_TxFrame->Data[3] = (uint8_t)(m2 >> 8);
-    FDCAN_TxFrame->Data[4] = (uint8_t)m3; FDCAN_TxFrame->Data[5] = (uint8_t)(m3 >> 8);
-    FDCAN_TxFrame->Data[6] = (uint8_t)m4; FDCAN_TxFrame->Data[7] = (uint8_t)(m4 >> 8);
+    FDCAN_TxFrame->Header.Identifier = 0x200;
+    // C620/M3508 是 DJI 标准大端帧（高字节在前），和驱动轮 TransmitWheelMotorCurrent 一致
+    FDCAN_TxFrame->Data[0] = (uint8_t)(m1 >> 8); FDCAN_TxFrame->Data[1] = (uint8_t)m1;
+    FDCAN_TxFrame->Data[2] = (uint8_t)(m2 >> 8); FDCAN_TxFrame->Data[3] = (uint8_t)m2;
+    FDCAN_TxFrame->Data[4] = (uint8_t)(m3 >> 8); FDCAN_TxFrame->Data[5] = (uint8_t)m3;
+    FDCAN_TxFrame->Data[6] = (uint8_t)(m4 >> 8); FDCAN_TxFrame->Data[7] = (uint8_t)m4;
     USER_FDCAN_AddMessageToTxFifoQ(FDCAN_TxFrame);
 }
 
@@ -328,36 +296,6 @@ void DM_Motor_Info_Update(uint32_t *Identifier,uint8_t *Rx_Buf,DM_Motor_Info_Typ
 }
 
 /**
- * @brief MIT 协议解码: 无符号整数 -> 浮点物理量
- * @param X_int 原始无符号整数
- * @param X_min 物理量下界
- * @param X_max 物理量上界
- * @param Bits  位宽(如 12/16)
- * @retval 映射后的浮点物理量 = X_int * (X_max-X_min) / (2^Bits-1) + X_min
- * @note  例如位置 16 位、量程 [-2PI,2PI]: 中间值 0x8000 对应 0 rad。
- */
-float uint_to_float(int X_int, float X_min, float X_max, int Bits)
-{
-    float span = X_max - X_min; float offset = X_min;
-    return ((float)X_int)*span/((float)((1<<Bits)-1)) + offset;
-}
-
-/**
- * @brief MIT 协议编码: 浮点物理量 -> 无符号整数
- * @param x     物理量
- * @param x_min 物理量下界
- * @param x_max 物理量上界
- * @param bits  位宽(如 12/16)
- * @retval 映射后的无符号整数 = (x - x_min) * (2^bits-1) / (x_max - x_min)
- * @note  与 uint_to_float 互逆; 超出量程会溢出截断, 调用前应保证 x 在量程内。
- */
-int float_to_uint(float x, float x_min, float x_max, int bits)
-{
-    float span = x_max - x_min; float offset = x_min;
-    return (int) ((x-offset)*((float)((1<<bits)-1))/span);
-}
-
-/**
   * @brief  检查所有电机是否离线(超过 MOTOR_OFFLINE_TIMEOUT 未收到反馈即置离线标志)
   * @note   此函数将在 Control_Task 中循环调用; 检测大疆底盘/发射电机、LK 舵向电机、DM 电机。
   */
@@ -367,10 +305,10 @@ void Check_All_Motors_Offline(void)
 
     //检测轮向电机
     for(int i = 0; i < 4; i++) {
-        if((current_time - Chassis_Motor[i].Motor_time) > MOTOR_OFFLINE_TIMEOUT) {
-            Chassis_Motor[i].is_offline = true;
+        if((current_time - Wheel_Motor[i].Motor_time) > MOTOR_OFFLINE_TIMEOUT) {
+            Wheel_Motor[i].is_offline = true;
         } else {
-            Chassis_Motor[i].is_offline = false;
+            Wheel_Motor[i].is_offline = false;
         }
     }
 		//检测舵向电机
